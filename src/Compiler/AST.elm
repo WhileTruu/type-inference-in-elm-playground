@@ -104,7 +104,11 @@ prettyScheme (Scheme vars ty) =
             let
                 vars_ : List ( String, String )
                 vars_ =
-                    List.indexedMap (\i var -> ( var, generateVarName i )) vars
+                    List.indexedMap
+                        (\i var -> ( var, generateVarName i ))
+                        (List.sortBy (String.dropLeft 1 >> String.toInt >> Maybe.withDefault 0)
+                            vars
+                        )
 
                 renamedTy : Type
                 renamedTy =
