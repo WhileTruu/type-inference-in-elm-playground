@@ -100,4 +100,33 @@ compileTestSuite =
                 in
                 Expect.equal (parseAndTypecheck input)
                     (Ok "∀ a. a -> Int -> Int")
+        , Test.test "context" <|
+            \_ ->
+                let
+                    input : String
+                    input =
+                        String.join "\n"
+                            [ "\\a ->"
+                            , "  potato = 10"
+                            , "  \\b ->"
+                            , "    potato"
+                            ]
+                in
+                Expect.equal (parseAndTypecheck input)
+                    (Ok "∀ a b. a -> b -> Int")
+        , Test.test "ordered defs" <|
+            \_ ->
+                let
+                    input : String
+                    input =
+                        String.join "\n"
+                            [ "\\a ->"
+                            , "  mike = 10"
+                            , "  mikeAlias = mike"
+                            , "  mikeSecondAlias = mikeAlias"
+                            , "  (add mikeSecondAlias) a"
+                            ]
+                in
+                Expect.equal (parseAndTypecheck input)
+                    (Ok "Int -> Int")
         ]

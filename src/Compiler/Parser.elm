@@ -64,20 +64,41 @@ chompExprEnd expr =
 
 defsOrVarAndChompExprEnd : P.Parser Exp
 defsOrVarAndChompExprEnd =
-    P.succeed identity
-        |= variable
-        |. spacesOnly
-        |> P.andThen
-            (\name ->
-                P.oneOf
-                    [ P.succeed (ELet name)
-                        |. P.symbol "="
-                        |. ignoreablesAndCheckIndent (<) "Expecting indentation"
-                        |= P.lazy (\_ -> expression)
-                        |= P.lazy (\_ -> expression)
-                    , varAndChompExprEnd name
-                    ]
-            )
+    P.loop [] defsOrVarAndChompExprEndHelp
+
+
+defsOrVarAndChompExprEndHelp : List ( String, Exp ) -> Parser (P.Step (List ( String, Exp )) Exp)
+defsOrVarAndChompExprEndHelp args =
+    P.oneOf
+        [ P.succeed identity
+            |= variable
+            |. spacesOnly
+            |> P.andThen
+                (\name ->
+                    P.oneOf
+                        [ P.succeed (\body -> ( name, body ))
+                            |. P.symbol "="
+                            |. ignoreablesAndCheckIndent (<) "ExpectingIndentation"
+                            |= P.lazy (\_ -> expression)
+                            |> P.map (\def2_ -> P.Loop (def2_ :: args))
+                        , if List.isEmpty args then
+                            varAndChompExprEnd name
+                                |> P.map P.Done
+
+                          else
+                            P.succeed (\expr -> ELet (List.reverse args) expr)
+                                |= varAndChompExprEnd name
+                                |> P.map P.Done
+                        ]
+                )
+        , if List.isEmpty args then
+            P.problem "Expecting defs"
+
+          else
+            P.succeed (\expr -> ELet (List.reverse args) expr)
+                |= P.lazy (\_ -> expression)
+                |> P.map P.Done
+        ]
 
 
 varAndChompExprEnd : String -> P.Parser Exp

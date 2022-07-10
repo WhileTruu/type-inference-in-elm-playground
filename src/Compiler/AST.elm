@@ -6,7 +6,7 @@ type Exp
     | ELit Lit
     | EApp Exp Exp
     | ELam String Exp
-    | ELet String Exp Exp
+    | ELet (List ( String, Exp )) Exp
 
 
 type Lit
@@ -40,8 +40,19 @@ expToString exp =
         ELam s e ->
             "(Lambda " ++ s ++ " " ++ expToString e ++ ")"
 
-        ELet s e1 e2 ->
-            "(Let " ++ s ++ " " ++ expToString e1 ++ " " ++ expToString e2 ++ ")"
+        ELet defs e ->
+            let
+                defsString =
+                    "("
+                        ++ List.foldl
+                            (\( name, body ) acc ->
+                                acc ++ ", (Def " ++ name ++ " " ++ expToString body ++ ")"
+                            )
+                            ""
+                            defs
+                        ++ ")"
+            in
+            "(Let " ++ defsString ++ " " ++ expToString e ++ ")"
 
 
 litToString : Lit -> String
