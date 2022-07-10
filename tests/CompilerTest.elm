@@ -60,4 +60,44 @@ compileTestSuite =
                             ++ " -> p -> q -> r -> s -> t -> u -> v -> w -> x -> y -> z -> a1 -> Int"
                         )
                     )
+        , Test.test "lambda argument is inferred" <|
+            \_ ->
+                let
+                    input : String
+                    input =
+                        String.join "\n"
+                            [ "\\a ->"
+                            , "  x = 1"
+                            , "  (add a) x"
+                            ]
+                in
+                Expect.equal (parseAndTypecheck input)
+                    (Ok "Int -> Int")
+        , Test.test "nested lambda arguments are inferred" <|
+            \_ ->
+                let
+                    input : String
+                    input =
+                        String.join "\n"
+                            [ "\\a ->"
+                            , "  \\b ->"
+                            , "    (add a) b"
+                            ]
+                in
+                Expect.equal (parseAndTypecheck input)
+                    (Ok "Int -> Int -> Int")
+        , Test.test "variable shadowing" <|
+            \_ ->
+                let
+                    input : String
+                    input =
+                        String.join "\n"
+                            [ "\\a ->"
+                            , "  \\b ->"
+                            , "    a = 10"
+                            , "    (add a) b"
+                            ]
+                in
+                Expect.equal (parseAndTypecheck input)
+                    (Ok "∀ a. a -> Int -> Int")
         ]
