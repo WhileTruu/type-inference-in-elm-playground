@@ -17,7 +17,7 @@ compileTestSuite =
                 |> Result.map AST.prettyScheme
     in
     Test.describe "compile"
-        [ Test.test "lol" <|
+        [ Test.test "deeply nested lambda" <|
             \_ ->
                 let
                     input : String
