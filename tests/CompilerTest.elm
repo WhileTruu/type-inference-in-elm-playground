@@ -2,18 +2,24 @@ module CompilerTest exposing (..)
 
 import Compiler.AST as AST exposing (Scheme)
 import Compiler.Parser as Parser
-import Compiler.Typechecker as Typecheck
+import Compiler.Typechecker as Typechecker
 import Expect exposing (Expectation)
 import Test exposing (..)
+
+
+type Error
+    = TypeError Typechecker.Error
+    | ParseError String
 
 
 compileTestSuite : Test
 compileTestSuite =
     let
-        parseAndTypecheck : String -> Result String String
+        parseAndTypecheck : String -> Result Error String
         parseAndTypecheck input =
             Parser.run input
-                |> Result.andThen Typecheck.run
+                |> Result.mapError ParseError
+                |> Result.andThen (Typechecker.run >> Result.mapError TypeError)
                 |> Result.map AST.prettyScheme
     in
     Test.describe "compile"
@@ -129,4 +135,21 @@ compileTestSuite =
                 in
                 Expect.equal (parseAndTypecheck input)
                     (Ok "Int -> Int")
+
+        -- TODO redefinition shouldn't be possible
+        -- Better as part of parsing, canonicalization or sth?
+        -- , Test.test "redefinition" <|
+        --     \_ ->
+        --         let
+        --             input : String
+        --             input =
+        --                 String.join "\n"
+        --                     [ "\\a ->"
+        --                     , "  x = 1"
+        --                     , "  x = 2"
+        --                     , "  x"
+        --                     ]
+        --         in
+        --         Expect.equal (parseAndTypecheck input)
+        --             (Ok "Int -> Int")
         ]
