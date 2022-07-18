@@ -1,6 +1,6 @@
 module Compiler.Typechecker exposing (..)
 
-import Compiler.AST as AST exposing (Exp(..), Lit(..), Scheme(..), Type(..))
+import Compiler.AST as AST exposing (Exp(..), Scheme(..), Type(..))
 import Dict exposing (Dict)
 import Set exposing (Set)
 
@@ -149,16 +149,6 @@ generalize ctx t =
     Scheme vars t
 
 
-inferLiteral : Lit -> Type
-inferLiteral lit =
-    case lit of
-        LInt _ ->
-            TInt
-
-        LBool _ ->
-            TBool
-
-
 instantiate : Id -> Scheme -> ( Type, Id )
 instantiate id (Scheme vars ty) =
     List.foldl
@@ -195,8 +185,11 @@ infer id ctx exp =
                                 Ok ( Dict.empty, ty, id_ )
                            )
 
-        ELit lit ->
-            Ok ( Dict.empty, inferLiteral lit, id )
+        EInt _ ->
+            Ok ( Dict.empty, TInt, id )
+
+        EBool _ ->
+            Ok ( Dict.empty, TBool, id )
 
         EApp fun arg ->
             newTyVar id

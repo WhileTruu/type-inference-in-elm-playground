@@ -1,6 +1,6 @@
 module Compiler.Parser exposing (..)
 
-import Compiler.AST exposing (Exp(..), Lit(..))
+import Compiler.AST exposing (Exp(..))
 import Parser as P exposing ((|.), (|=), Parser)
 import Set
 
@@ -17,7 +17,7 @@ term =
         [ variable
             |> P.map (\name -> EVar name)
         , P.number
-            { int = Just (ELit << LInt)
+            { int = Just EInt
             , hex = Nothing
             , octal = Nothing
             , binary = Nothing

@@ -3,15 +3,11 @@ module Compiler.AST exposing (..)
 
 type Exp
     = EVar String
-    | ELit Lit
+    | EInt Int
+    | EBool Bool
     | EApp Exp Exp
     | ELam String Exp
     | ELet (List ( String, Exp )) Exp
-
-
-type Lit
-    = LInt Int
-    | LBool Bool
 
 
 type Type
@@ -25,14 +21,28 @@ type Scheme
     = Scheme (List String) Type
 
 
+
+-- PRETTY PRINTING
+
+
 expToString : Exp -> String
 expToString exp =
     case exp of
         EVar s ->
             "(Variable " ++ s ++ ")"
 
-        ELit lit ->
-            "(Literal " ++ litToString lit ++ ")"
+        EInt int ->
+            "(Int " ++ String.fromInt int ++ ")"
+
+        EBool bool ->
+            "(Bool "
+                ++ (case bool of
+                        True ->
+                            "True"
+
+                        False ->
+                            "False" ++ ")"
+                   )
 
         EApp e1 e2 ->
             "(" ++ expToString e1 ++ " " ++ expToString e2 ++ ")"
@@ -53,23 +63,6 @@ expToString exp =
                         ++ ")"
             in
             "(Let " ++ defsString ++ " " ++ expToString e ++ ")"
-
-
-litToString : Lit -> String
-litToString lit =
-    case lit of
-        LInt i ->
-            "(Int " ++ String.fromInt i ++ ")"
-
-        LBool b ->
-            "(Bool "
-                ++ (case b of
-                        True ->
-                            "True"
-
-                        False ->
-                            "False" ++ ")"
-                   )
 
 
 isFun : Type -> Bool
