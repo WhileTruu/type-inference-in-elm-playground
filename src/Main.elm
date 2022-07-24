@@ -1,7 +1,7 @@
 module Main exposing (main)
 
 import Browser
-import Compiler.AST as AST exposing (Exp)
+import Compiler.AST as AST exposing (Expr)
 import Compiler.Parser as Parser
 import Compiler.Typechecker as Typechecker
 import Html exposing (Html, button, div, input, text, textarea)
@@ -10,7 +10,7 @@ import Html.Events exposing (onClick, onInput)
 
 type alias Model =
     { input : String
-    , output : Result String Exp
+    , output : Result String Expr
     }
 
 
@@ -44,7 +44,7 @@ view model =
         , Html.div []
             [ case model.output of
                 Ok output ->
-                    text <| "Success: " ++ AST.expToString output
+                    text <| "Success: " ++ AST.exprToString output
 
                 Err err ->
                     text <| "Error: " ++ err

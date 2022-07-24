@@ -1,47 +1,47 @@
 module Compiler.Typechecker exposing (..)
 
 import AssocList as Dict exposing (Dict)
-import Compiler.AST as AST exposing (Annotation(..), Exp(..), FreeVars, Type(..))
+import Compiler.AST as AST exposing (Annotation(..), Expr(..), FreeVars, Type(..))
 import Data.Name as Name exposing (Name)
 
 
-run : Exp -> Result Error Annotation
+run : Expr -> Result Error Annotation
 run e =
     typeInference (Id 0) primitives e
         |> Result.map Tuple.first
         |> Result.map (generalize Dict.empty)
 
 
-applySubst : Dict Name Type -> Type -> Type
-applySubst subst ty =
+applySubstitution : Dict Name Type -> Type -> Type
+applySubstitution subst ty =
     case ty of
-        TVar var ->
-            Maybe.withDefault (TVar var) (Dict.get var subst)
+        TypeVar var ->
+            Maybe.withDefault (TypeVar var) (Dict.get var subst)
 
-        TFun arg res ->
-            TFun (applySubst subst arg) (applySubst subst res)
+        TypeLambda arg res ->
+            TypeLambda (applySubstitution subst arg) (applySubstitution subst res)
 
-        TInt ->
-            TInt
+        TypeInt ->
+            TypeInt
 
-        TBool ->
-            TBool
+        TypeBool ->
+            TypeBool
 
 
-applySubstScheme : Dict Name Type -> Annotation -> Annotation
-applySubstScheme subst (Annotation vars t) =
+applySubstitutionAnnotation : Dict Name Type -> Annotation -> Annotation
+applySubstitutionAnnotation subst (Annotation vars t) =
     -- The fold takes care of name shadowing
     -- TODO just get rid of shadowing?
-    Annotation vars (applySubst (Dict.diff subst vars) t)
+    Annotation vars (applySubstitution (Dict.diff subst vars) t)
 
 
 {-| TODO: I'm not sure what the relevance of that is, but
 <https://github.com/kritzcreek/fby19/blob/master/src/Typechecker.hs> has the
 following warning: "This is much more subtle than it seems. (union is left biased)"
 -}
-composeSubst : Dict Name Type -> Dict Name Type -> Dict Name Type
-composeSubst s1 s2 =
-    Dict.union (Dict.map (\_ -> applySubst s1) s2) s1
+composeSubstitution : Dict Name Type -> Dict Name Type -> Dict Name Type
+composeSubstitution s1 s2 =
+    Dict.union (Dict.map (\_ -> applySubstitution s1) s2) s1
 
 
 type Id
@@ -58,18 +58,18 @@ idToString (Id id) =
     String.fromInt id
 
 
-newTyVar : Id -> ( Type, Id )
-newTyVar id =
-    ( TVar (Name.fromString ("u" ++ idToString id)), incrementId id )
+newTypeVar : Id -> ( Type, Id )
+newTypeVar id =
+    ( TypeVar (Name.fromString ("u" ++ idToString id)), incrementId id )
 
 
 freeTypeVars : Type -> FreeVars
 freeTypeVars ty =
     case ty of
-        TVar var ->
+        TypeVar var ->
             Dict.singleton var ()
 
-        TFun t1 t2 ->
+        TypeLambda t1 t2 ->
             Dict.union (freeTypeVars t1) (freeTypeVars t2)
 
         _ ->
@@ -85,7 +85,7 @@ freeTypeVarsScheme (Annotation vars t) =
 -}
 varBind : Name -> Type -> Result Error (Dict Name Type)
 varBind var ty =
-    if ty == TVar var then
+    if ty == TypeVar var then
         Ok Dict.empty
 
     else if Dict.member var (freeTypeVars ty) then
@@ -98,24 +98,24 @@ varBind var ty =
 unify : Type -> Type -> Result Error (Dict Name Type)
 unify ty1 ty2 =
     case ( ty1, ty2 ) of
-        ( TInt, TInt ) ->
+        ( TypeInt, TypeInt ) ->
             Ok Dict.empty
 
-        ( TBool, TBool ) ->
+        ( TypeBool, TypeBool ) ->
             Ok Dict.empty
 
-        ( TFun l r, TFun l_ r_ ) ->
+        ( TypeLambda l r, TypeLambda l_ r_ ) ->
             unify l l_
                 |> Result.andThen
                     (\s1 ->
-                        unify (applySubst s1 r) (applySubst s1 r_)
-                            |> Result.map (\s2 -> composeSubst s1 s2)
+                        unify (applySubstitution s1 r) (applySubstitution s1 r_)
+                            |> Result.map (\s2 -> composeSubstitution s1 s2)
                     )
 
-        ( TVar u, t ) ->
+        ( TypeVar u, t ) ->
             varBind u t
 
-        ( t, TVar u ) ->
+        ( t, TypeVar u ) ->
             varBind u t
 
         ( t1, t2 ) ->
@@ -126,13 +126,13 @@ type alias Context =
     Dict Name Annotation
 
 
-applySubstCtx : Dict Name Type -> Context -> Context
-applySubstCtx subst ctx =
-    Dict.map (\_ -> applySubstScheme subst) ctx
+applySubstitutionContext : Dict Name Type -> Context -> Context
+applySubstitutionContext subst ctx =
+    Dict.map (\_ -> applySubstitutionAnnotation subst) ctx
 
 
-freeTypeVarsCtx : Context -> FreeVars
-freeTypeVarsCtx ctx =
+freeTypeVarsContext : Context -> FreeVars
+freeTypeVarsContext ctx =
     List.foldl (\a acc -> Dict.union (freeTypeVarsScheme a) acc) Dict.empty (Dict.values ctx)
 
 
@@ -141,7 +141,7 @@ generalize ctx t =
     let
         vars : FreeVars
         vars =
-            Dict.diff (freeTypeVars t) (freeTypeVarsCtx ctx)
+            Dict.diff (freeTypeVars t) (freeTypeVarsContext ctx)
     in
     Annotation vars t
 
@@ -152,7 +152,7 @@ instantiate id (Annotation vars ty) =
         (\_ ( acc, id1 ) ->
             let
                 ( tyVar, id2 ) =
-                    newTyVar id1
+                    newTypeVar id1
             in
             ( tyVar :: acc, id2 )
         )
@@ -164,15 +164,15 @@ instantiate id (Annotation vars ty) =
                     subst =
                         Dict.fromList (List.map2 Tuple.pair (Dict.keys vars) newVars)
                 in
-                ( applySubst subst ty, id1 )
+                ( applySubstitution subst ty, id1 )
            )
 
 
-infer : Id -> Context -> Exp -> Result Error ( Dict Name Type, Type, Id )
-infer id ctx exp =
-    case exp of
-        EVar var ->
-            case Dict.get var ctx of
+infer : Id -> Context -> Expr -> Result Error ( Dict Name Type, Type, Id )
+infer id context expr =
+    case expr of
+        ExprVar var ->
+            case Dict.get var context of
                 Nothing ->
                     Err (UnboundVariable var)
 
@@ -182,50 +182,50 @@ infer id ctx exp =
                                 Ok ( Dict.empty, ty, id_ )
                            )
 
-        EInt _ ->
-            Ok ( Dict.empty, TInt, id )
+        ExprInt _ ->
+            Ok ( Dict.empty, TypeInt, id )
 
-        EBool _ ->
-            Ok ( Dict.empty, TBool, id )
+        ExprBool _ ->
+            Ok ( Dict.empty, TypeBool, id )
 
-        EApp fun arg ->
-            newTyVar id
+        ExprCall fun arg ->
+            newTypeVar id
                 |> (\( tyRes, id1 ) ->
-                        infer id1 ctx fun
+                        infer id1 context fun
                             |> Result.andThen
                                 (\( s1, tyFun, id2 ) ->
-                                    infer id2 (applySubstCtx s1 ctx) arg
+                                    infer id2 (applySubstitutionContext s1 context) arg
                                         |> Result.andThen
                                             (\( s2, tyArg, id3 ) ->
-                                                unify (applySubst s2 tyFun) (TFun tyArg tyRes)
+                                                unify (applySubstitution s2 tyFun) (TypeLambda tyArg tyRes)
                                                     |> Result.map
                                                         (\s3 ->
-                                                            ( composeSubst s1 (composeSubst s2 s3), applySubst s3 tyRes, id3 )
+                                                            ( composeSubstitution s1 (composeSubstitution s2 s3), applySubstitution s3 tyRes, id3 )
                                                         )
                                             )
                                 )
                    )
 
-        ELam binder body ->
-            newTyVar id
+        ExprLambda binder body ->
+            newTypeVar id
                 |> (\( tyBinder, id1 ) ->
                         let
                             tmpCtx : Context
                             tmpCtx =
-                                Dict.insert binder (Annotation Dict.empty tyBinder) ctx
+                                Dict.insert binder (Annotation Dict.empty tyBinder) context
                         in
                         infer id1 tmpCtx body
                             |> Result.map
                                 (\( s1, tyBody, id2 ) ->
-                                    ( s1, TFun (applySubst s1 tyBinder) tyBody, id2 )
+                                    ( s1, TypeLambda (applySubstitution s1 tyBinder) tyBody, id2 )
                                 )
                    )
 
 
-typeInference : Id -> Context -> Exp -> Result Error ( Type, Id )
+typeInference : Id -> Context -> Expr -> Result Error ( Type, Id )
 typeInference id ctx exp =
     infer id ctx exp
-        |> Result.map (\( s, t, id1 ) -> ( applySubst s t, id1 ))
+        |> Result.map (\( s, t, id1 ) -> ( applySubstitution s t, id1 ))
 
 
 primitives : Context
@@ -233,28 +233,28 @@ primitives =
     Dict.fromList
         [ ( Name.fromString "identity"
           , Annotation (Dict.singleton (Name.fromString "a") ())
-                (TFun (TVar (Name.fromString "a")) (TVar (Name.fromString "a")))
+                (TypeLambda (TypeVar (Name.fromString "a")) (TypeVar (Name.fromString "a")))
           )
         , ( Name.fromString "const"
           , Annotation (Dict.fromList [ ( Name.fromString "a", () ), ( Name.fromString "b", () ) ])
-                (TFun
-                    (TVar (Name.fromString "a"))
-                    (TFun
-                        (TVar (Name.fromString "b"))
-                        (TVar (Name.fromString "a"))
+                (TypeLambda
+                    (TypeVar (Name.fromString "a"))
+                    (TypeLambda
+                        (TypeVar (Name.fromString "b"))
+                        (TypeVar (Name.fromString "a"))
                     )
                 )
           )
-        , ( Name.fromString "add", Annotation Dict.empty (TFun TInt (TFun TInt TInt)) )
-        , ( Name.fromString "gte", Annotation Dict.empty (TFun TInt (TFun TInt TBool)) )
+        , ( Name.fromString "add", Annotation Dict.empty (TypeLambda TypeInt (TypeLambda TypeInt TypeInt)) )
+        , ( Name.fromString "gte", Annotation Dict.empty (TypeLambda TypeInt (TypeLambda TypeInt TypeBool)) )
         , ( Name.fromString "if"
           , Annotation (Dict.singleton (Name.fromString "a") ())
-                (TFun TBool
-                    (TFun
-                        (TVar (Name.fromString "a"))
-                        (TFun
-                            (TVar (Name.fromString "a"))
-                            (TVar (Name.fromString "a"))
+                (TypeLambda TypeBool
+                    (TypeLambda
+                        (TypeVar (Name.fromString "a"))
+                        (TypeLambda
+                            (TypeVar (Name.fromString "a"))
+                            (TypeVar (Name.fromString "a"))
                         )
                     )
                 )

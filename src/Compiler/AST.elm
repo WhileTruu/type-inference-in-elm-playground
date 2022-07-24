@@ -4,19 +4,19 @@ import AssocList as Dict exposing (Dict)
 import Data.Name as Name exposing (Name)
 
 
-type Exp
-    = EVar Name
-    | EInt Int
-    | EBool Bool
-    | EApp Exp Exp
-    | ELam Name Exp
+type Expr
+    = ExprVar Name
+    | ExprInt Int
+    | ExprBool Bool
+    | ExprCall Expr Expr
+    | ExprLambda Name Expr
 
 
 type Type
-    = TInt
-    | TBool
-    | TVar Name
-    | TFun Type Type
+    = TypeInt
+    | TypeBool
+    | TypeVar Name
+    | TypeLambda Type Type
 
 
 type Annotation
@@ -31,16 +31,16 @@ type alias FreeVars =
 -- PRETTY PRINTING
 
 
-expToString : Exp -> String
-expToString exp =
+exprToString : Expr -> String
+exprToString exp =
     case exp of
-        EVar s ->
+        ExprVar s ->
             "(Variable " ++ Name.toString s ++ ")"
 
-        EInt int ->
+        ExprInt int ->
             "(Int " ++ String.fromInt int ++ ")"
 
-        EBool bool ->
+        ExprBool bool ->
             "(Bool "
                 ++ (case bool of
                         True ->
@@ -50,17 +50,17 @@ expToString exp =
                             "False" ++ ")"
                    )
 
-        EApp e1 e2 ->
-            "(" ++ expToString e1 ++ " " ++ expToString e2 ++ ")"
+        ExprCall e1 e2 ->
+            "(" ++ exprToString e1 ++ " " ++ exprToString e2 ++ ")"
 
-        ELam s e ->
-            "(Lambda " ++ Name.toString s ++ " " ++ expToString e ++ ")"
+        ExprLambda s e ->
+            "(Lambda " ++ Name.toString s ++ " " ++ exprToString e ++ ")"
 
 
-isFun : Type -> Bool
-isFun ty =
+isTypeLambda : Type -> Bool
+isTypeLambda ty =
     case ty of
-        TFun _ _ ->
+        TypeLambda _ _ ->
             True
 
         _ ->
@@ -70,17 +70,17 @@ isFun ty =
 prettyType : Type -> String
 prettyType ty =
     case ty of
-        TVar var ->
+        TypeVar var ->
             Name.toString var
 
-        TInt ->
+        TypeInt ->
             "Int"
 
-        TBool ->
+        TypeBool ->
             "Bool"
 
-        TFun ty1 ty2 ->
-            (if isFun ty1 then
+        TypeLambda ty1 ty2 ->
+            (if isTypeLambda ty1 then
                 "(" ++ prettyType ty1 ++ ")"
 
              else
@@ -108,22 +108,22 @@ prettyScheme (Annotation vars ty) =
 
                 renamedTy : Type
                 renamedTy =
-                    List.foldl renameVar ty vars_
+                    List.foldl renameTypeVar ty vars_
             in
             "∀ " ++ String.join " " (List.map Tuple.second vars_) ++ ". " ++ prettyType renamedTy
 
 
-renameVar : ( Name, String ) -> Type -> Type
-renameVar ( old, new ) ty =
+renameTypeVar : ( Name, String ) -> Type -> Type
+renameTypeVar ( old, new ) ty =
     case ty of
-        TInt ->
-            TInt
+        TypeInt ->
+            TypeInt
 
-        TBool ->
-            TBool
+        TypeBool ->
+            TypeBool
 
-        TVar var ->
-            TVar
+        TypeVar var ->
+            TypeVar
                 (if var == old then
                     Name.fromString new
 
@@ -131,8 +131,8 @@ renameVar ( old, new ) ty =
                     var
                 )
 
-        TFun t1 t2 ->
-            TFun (renameVar ( old, new ) t1) (renameVar ( old, new ) t2)
+        TypeLambda t1 t2 ->
+            TypeLambda (renameTypeVar ( old, new ) t1) (renameTypeVar ( old, new ) t2)
 
 
 generateVarName : Int -> String

@@ -1,24 +1,24 @@
 module Compiler.Parser exposing (..)
 
-import Compiler.AST exposing (Exp(..))
+import Compiler.AST exposing (Expr(..))
 import Data.Name as Name exposing (Name)
 import Parser as P exposing ((|.), (|=), Parser)
 import Set
 
 
-run : String -> Result String Exp
+run : String -> Result String Expr
 run string =
     P.run expression string
         |> Result.mapError P.deadEndsToString
 
 
-term : Parser Exp
+term : Parser Expr
 term =
     P.oneOf
         [ variable
-            |> P.map (\name -> EVar (Name.fromString name))
+            |> P.map (\name -> ExprVar (Name.fromString name))
         , P.number
-            { int = Just EInt
+            { int = Just ExprInt
             , hex = Nothing
             , octal = Nothing
             , binary = Nothing
@@ -42,7 +42,7 @@ variable =
         }
 
 
-expression : Parser Exp
+expression : Parser Expr
 expression =
     P.oneOf
         [ lambda
@@ -50,27 +50,27 @@ expression =
         ]
 
 
-chompExprEnd : Exp -> Parser Exp
+chompExprEnd : Expr -> Parser Expr
 chompExprEnd expr =
     P.succeed identity
         |. ignoreables
         |= P.oneOf
-            [ P.succeed (EApp expr)
+            [ P.succeed (ExprCall expr)
                 |. checkIndent (<) "Expecting indentation"
                 |= term
             , P.succeed expr
             ]
 
 
-varAndChompExprEnd : Name -> P.Parser Exp
+varAndChompExprEnd : Name -> P.Parser Expr
 varAndChompExprEnd name =
-    P.succeed (EVar name)
+    P.succeed (ExprVar name)
         |> P.andThen (\expr -> chompExprEnd expr)
 
 
-lambda : Parser Exp
+lambda : Parser Expr
 lambda =
-    P.succeed ELam
+    P.succeed ExprLambda
         |. backslash
         |= P.map Name.fromString variable
         |. spacesOnly
