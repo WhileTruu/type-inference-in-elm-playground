@@ -1,18 +1,18 @@
 module Compiler.Typechecker exposing (..)
 
-import Compiler.AST as AST exposing (Exp(..), Scheme(..), Type(..))
-import Dict exposing (Dict)
-import Set exposing (Set)
+import AssocList as Dict exposing (Dict)
+import Compiler.AST as AST exposing (Annotation(..), Exp(..), FreeVars, Type(..))
+import Data.Name as Name exposing (Name)
 
 
-run : Exp -> Result Error Scheme
+run : Exp -> Result Error Annotation
 run e =
     typeInference (Id 0) primitives e
         |> Result.map Tuple.first
         |> Result.map (generalize Dict.empty)
 
 
-applySubst : Dict String Type -> Type -> Type
+applySubst : Dict Name Type -> Type -> Type
 applySubst subst ty =
     case ty of
         TVar var ->
@@ -28,21 +28,18 @@ applySubst subst ty =
             TBool
 
 
-applySubstScheme : Dict String Type -> Scheme -> Scheme
-applySubstScheme subst (Scheme vars t) =
+applySubstScheme : Dict Name Type -> Annotation -> Annotation
+applySubstScheme subst (Annotation vars t) =
     -- The fold takes care of name shadowing
     -- TODO just get rid of shadowing?
-    Scheme vars (applySubst (List.foldr Dict.remove subst vars) t)
+    Annotation vars (applySubst (Dict.diff subst vars) t)
 
 
 {-| TODO: I'm not sure what the relevance of that is, but
 <https://github.com/kritzcreek/fby19/blob/master/src/Typechecker.hs> has the
 following warning: "This is much more subtle than it seems. (union is left biased)"
-
-Also, should simply a `Dict String Type` be used instead of substitution?
-
 -}
-composeSubst : Dict String Type -> Dict String Type -> Dict String Type
+composeSubst : Dict Name Type -> Dict Name Type -> Dict Name Type
 composeSubst s1 s2 =
     Dict.union (Dict.map (\_ -> applySubst s1) s2) s1
 
@@ -63,42 +60,42 @@ idToString (Id id) =
 
 newTyVar : Id -> ( Type, Id )
 newTyVar id =
-    ( TVar ("u" ++ idToString id), incrementId id )
+    ( TVar (Name.fromString ("u" ++ idToString id)), incrementId id )
 
 
-freeTypeVars : Type -> Set String
+freeTypeVars : Type -> FreeVars
 freeTypeVars ty =
     case ty of
         TVar var ->
-            Set.singleton var
+            Dict.singleton var ()
 
         TFun t1 t2 ->
-            Set.union (freeTypeVars t1) (freeTypeVars t2)
+            Dict.union (freeTypeVars t1) (freeTypeVars t2)
 
         _ ->
-            Set.empty
+            Dict.empty
 
 
-freeTypeVarsScheme : Scheme -> Set String
-freeTypeVarsScheme (Scheme vars t) =
-    Set.diff (freeTypeVars t) (Set.fromList vars)
+freeTypeVarsScheme : Annotation -> FreeVars
+freeTypeVarsScheme (Annotation vars t) =
+    Dict.diff (freeTypeVars t) vars
 
 
 {-| Creates a fresh unification variable and binds it to the given type
 -}
-varBind : String -> Type -> Result Error (Dict String Type)
+varBind : Name -> Type -> Result Error (Dict Name Type)
 varBind var ty =
     if ty == TVar var then
         Ok Dict.empty
 
-    else if Set.member var (freeTypeVars ty) then
+    else if Dict.member var (freeTypeVars ty) then
         Result.Err OccursCheckFailed
 
     else
         Ok (Dict.singleton var ty)
 
 
-unify : Type -> Type -> Result Error (Dict String Type)
+unify : Type -> Type -> Result Error (Dict Name Type)
 unify ty1 ty2 =
     case ( ty1, ty2 ) of
         ( TInt, TInt ) ->
@@ -126,52 +123,52 @@ unify ty1 ty2 =
 
 
 type alias Context =
-    Dict String Scheme
+    Dict Name Annotation
 
 
-applySubstCtx : Dict String Type -> Context -> Context
+applySubstCtx : Dict Name Type -> Context -> Context
 applySubstCtx subst ctx =
     Dict.map (\_ -> applySubstScheme subst) ctx
 
 
-freeTypeVarsCtx : Context -> Set String
+freeTypeVarsCtx : Context -> FreeVars
 freeTypeVarsCtx ctx =
-    List.foldl (\a acc -> Set.union (freeTypeVarsScheme a) acc) Set.empty (Dict.values ctx)
+    List.foldl (\a acc -> Dict.union (freeTypeVarsScheme a) acc) Dict.empty (Dict.values ctx)
 
 
-generalize : Context -> Type -> Scheme
+generalize : Context -> Type -> Annotation
 generalize ctx t =
     let
-        vars : List String
+        vars : FreeVars
         vars =
-            Set.toList (Set.diff (freeTypeVars t) (freeTypeVarsCtx ctx))
+            Dict.diff (freeTypeVars t) (freeTypeVarsCtx ctx)
     in
-    Scheme vars t
+    Annotation vars t
 
 
-instantiate : Id -> Scheme -> ( Type, Id )
-instantiate id (Scheme vars ty) =
+instantiate : Id -> Annotation -> ( Type, Id )
+instantiate id (Annotation vars ty) =
     List.foldl
-        (\_ ( acc, id_ ) ->
+        (\_ ( acc, id1 ) ->
             let
-                ( tyVar, id__ ) =
-                    newTyVar id_
+                ( tyVar, id2 ) =
+                    newTyVar id1
             in
-            ( tyVar :: acc, id__ )
+            ( tyVar :: acc, id2 )
         )
         ( [], id )
-        vars
-        |> (\( newVars, id_ ) ->
+        (Dict.keys vars)
+        |> (\( newVars, id1 ) ->
                 let
-                    subst : Dict String Type
+                    subst : Dict Name Type
                     subst =
-                        Dict.fromList (List.map2 Tuple.pair vars newVars)
+                        Dict.fromList (List.map2 Tuple.pair (Dict.keys vars) newVars)
                 in
-                ( applySubst subst ty, id_ )
+                ( applySubst subst ty, id1 )
            )
 
 
-infer : Id -> Context -> Exp -> Result Error ( Dict String Type, Type, Id )
+infer : Id -> Context -> Exp -> Result Error ( Dict Name Type, Type, Id )
 infer id ctx exp =
     case exp of
         EVar var ->
@@ -215,7 +212,7 @@ infer id ctx exp =
                         let
                             tmpCtx : Context
                             tmpCtx =
-                                Dict.insert binder (Scheme [] tyBinder) ctx
+                                Dict.insert binder (Annotation Dict.empty tyBinder) ctx
                         in
                         infer id1 tmpCtx body
                             |> Result.map
@@ -236,7 +233,7 @@ infer id ctx exp =
                     )
 
 
-inferRecursiveDefs : Id -> Context -> List ( String, Exp ) -> Result Error ( Dict String Type, Context, Id )
+inferRecursiveDefs : Id -> Context -> List ( Name, Exp ) -> Result Error ( Dict Name Type, Context, Id )
 inferRecursiveDefs id ctx defs =
     -- FIXME will create an infinite loop if there is a cycle in the definitions
     -- Elm compiler has cycle detection in `canonicalizeLet`
@@ -245,7 +242,7 @@ inferRecursiveDefs id ctx defs =
     inferRecursiveDefsHelp id ctx Dict.empty defs
 
 
-inferRecursiveDefsHelp : Id -> Context -> Dict String Type -> List ( String, Exp ) -> Result Error ( Dict String Type, Context, Id )
+inferRecursiveDefsHelp : Id -> Context -> Dict Name Type -> List ( Name, Exp ) -> Result Error ( Dict Name Type, Context, Id )
 inferRecursiveDefsHelp id ctx s defs =
     case defs of
         [] ->
@@ -255,12 +252,12 @@ inferRecursiveDefsHelp id ctx s defs =
             case infer id ctx binding of
                 Ok ( s1, tyBinder, id_ ) ->
                     let
-                        scheme : Scheme
+                        scheme : Annotation
                         scheme =
                             -- TODO figure out what the comment below is about :D
                             -- https://github.com/kritzcreek/fby19/blob/master/src/Typechecker.hs#L134
                             -- let scheme = generalize ctx (applySubst s1 t1)
-                            Scheme [] (applySubst s1 tyBinder)
+                            Annotation Dict.empty (applySubst s1 tyBinder)
 
                         tmpCtx : Context
                         tmpCtx =
@@ -281,11 +278,34 @@ typeInference id ctx exp =
 primitives : Context
 primitives =
     Dict.fromList
-        [ ( "identity", Scheme [ "a" ] (TFun (TVar "a") (TVar "a")) )
-        , ( "const", Scheme [ "a", "b" ] (TFun (TVar "a") (TFun (TVar "b") (TVar "a"))) )
-        , ( "add", Scheme [] (TFun TInt (TFun TInt TInt)) )
-        , ( "gte", Scheme [] (TFun TInt (TFun TInt TBool)) )
-        , ( "if", Scheme [ "a" ] (TFun TBool (TFun (TVar "a") (TFun (TVar "a") (TVar "a")))) )
+        [ ( Name.fromString "identity"
+          , Annotation (Dict.singleton (Name.fromString "a") ())
+                (TFun (TVar (Name.fromString "a")) (TVar (Name.fromString "a")))
+          )
+        , ( Name.fromString "const"
+          , Annotation (Dict.fromList [ ( Name.fromString "a", () ), ( Name.fromString "b", () ) ])
+                (TFun
+                    (TVar (Name.fromString "a"))
+                    (TFun
+                        (TVar (Name.fromString "b"))
+                        (TVar (Name.fromString "a"))
+                    )
+                )
+          )
+        , ( Name.fromString "add", Annotation Dict.empty (TFun TInt (TFun TInt TInt)) )
+        , ( Name.fromString "gte", Annotation Dict.empty (TFun TInt (TFun TInt TBool)) )
+        , ( Name.fromString "if"
+          , Annotation (Dict.singleton (Name.fromString "a") ())
+                (TFun TBool
+                    (TFun
+                        (TVar (Name.fromString "a"))
+                        (TFun
+                            (TVar (Name.fromString "a"))
+                            (TVar (Name.fromString "a"))
+                        )
+                    )
+                )
+          )
         ]
 
 
@@ -296,7 +316,7 @@ primitives =
 type Error
     = OccursCheckFailed
     | TypesDoNotUnify Type Type
-    | UnboundVariable String
+    | UnboundVariable Name
 
 
 errorToString : Error -> String
@@ -308,5 +328,5 @@ errorToString error =
         TypesDoNotUnify ty1 ty2 ->
             "Types do not unify: " ++ AST.prettyType ty1 ++ " and " ++ AST.prettyType ty2
 
-        UnboundVariable var ->
-            "Unbound variable: " ++ var
+        UnboundVariable name ->
+            "Unbound variable: " ++ Name.toString name

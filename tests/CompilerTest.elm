@@ -1,6 +1,6 @@
 module CompilerTest exposing (..)
 
-import Compiler.AST as AST exposing (Scheme)
+import Compiler.AST as AST exposing (Annotation)
 import Compiler.Parser as Parser
 import Compiler.Typechecker as Typechecker
 import Expect exposing (Expectation)

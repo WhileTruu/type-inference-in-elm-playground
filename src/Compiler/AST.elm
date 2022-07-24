@@ -1,24 +1,31 @@
 module Compiler.AST exposing (..)
 
+import AssocList as Dict exposing (Dict)
+import Data.Name as Name exposing (Name)
+
 
 type Exp
-    = EVar String
+    = EVar Name
     | EInt Int
     | EBool Bool
     | EApp Exp Exp
-    | ELam String Exp
-    | ELet (List ( String, Exp )) Exp
+    | ELam Name Exp
+    | ELet (List ( Name, Exp )) Exp
 
 
 type Type
     = TInt
     | TBool
-    | TVar String
+    | TVar Name
     | TFun Type Type
 
 
-type Scheme
-    = Scheme (List String) Type
+type Annotation
+    = Annotation FreeVars Type
+
+
+type alias FreeVars =
+    Dict Name ()
 
 
 
@@ -29,7 +36,7 @@ expToString : Exp -> String
 expToString exp =
     case exp of
         EVar s ->
-            "(Variable " ++ s ++ ")"
+            "(Variable " ++ Name.toString s ++ ")"
 
         EInt int ->
             "(Int " ++ String.fromInt int ++ ")"
@@ -48,7 +55,7 @@ expToString exp =
             "(" ++ expToString e1 ++ " " ++ expToString e2 ++ ")"
 
         ELam s e ->
-            "(Lambda " ++ s ++ " " ++ expToString e ++ ")"
+            "(Lambda " ++ Name.toString s ++ " " ++ expToString e ++ ")"
 
         ELet defs e ->
             let
@@ -56,7 +63,7 @@ expToString exp =
                     "("
                         ++ List.foldl
                             (\( name, body ) acc ->
-                                acc ++ ", (Def " ++ name ++ " " ++ expToString body ++ ")"
+                                acc ++ ", (Def " ++ Name.toString name ++ " " ++ expToString body ++ ")"
                             )
                             ""
                             defs
@@ -79,7 +86,7 @@ prettyType : Type -> String
 prettyType ty =
     case ty of
         TVar var ->
-            var
+            Name.toString var
 
         TInt ->
             "Int"
@@ -98,20 +105,20 @@ prettyType ty =
                 ++ prettyType ty2
 
 
-prettyScheme : Scheme -> String
-prettyScheme (Scheme vars ty) =
-    case vars of
+prettyScheme : Annotation -> String
+prettyScheme (Annotation vars ty) =
+    case Dict.keys vars of
         [] ->
             prettyType ty
 
         _ ->
             let
-                vars_ : List ( String, String )
+                vars_ : List ( Name, String )
                 vars_ =
                     List.indexedMap
                         (\i var -> ( var, generateVarName i ))
-                        (List.sortBy (String.dropLeft 1 >> String.toInt >> Maybe.withDefault 0)
-                            vars
+                        (List.sortBy (Name.toString >> String.dropLeft 1 >> String.toInt >> Maybe.withDefault 0)
+                            (Dict.keys vars)
                         )
 
                 renamedTy : Type
@@ -121,7 +128,7 @@ prettyScheme (Scheme vars ty) =
             "∀ " ++ String.join " " (List.map Tuple.second vars_) ++ ". " ++ prettyType renamedTy
 
 
-renameVar : ( String, String ) -> Type -> Type
+renameVar : ( Name, String ) -> Type -> Type
 renameVar ( old, new ) ty =
     case ty of
         TInt ->
@@ -133,7 +140,7 @@ renameVar ( old, new ) ty =
         TVar var ->
             TVar
                 (if var == old then
-                    new
+                    Name.fromString new
 
                  else
                     var

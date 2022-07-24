@@ -1,6 +1,7 @@
 module Compiler.Parser exposing (..)
 
 import Compiler.AST exposing (Exp(..))
+import Data.Name as Name exposing (Name)
 import Parser as P exposing ((|.), (|=), Parser)
 import Set
 
@@ -15,7 +16,7 @@ term : Parser Exp
 term =
     P.oneOf
         [ variable
-            |> P.map (\name -> EVar name)
+            |> P.map (\name -> EVar (Name.fromString name))
         , P.number
             { int = Just EInt
             , hex = Nothing
@@ -67,10 +68,10 @@ defsOrVarAndChompExprEnd =
     P.loop [] defsOrVarAndChompExprEndHelp
 
 
-defsOrVarAndChompExprEndHelp : List ( String, Exp ) -> Parser (P.Step (List ( String, Exp )) Exp)
+defsOrVarAndChompExprEndHelp : List ( Name, Exp ) -> Parser (P.Step (List ( Name, Exp )) Exp)
 defsOrVarAndChompExprEndHelp args =
     P.oneOf
-        [ P.succeed identity
+        [ P.succeed Name.fromString
             |= variable
             |. spacesOnly
             |> P.andThen
@@ -101,7 +102,7 @@ defsOrVarAndChompExprEndHelp args =
         ]
 
 
-varAndChompExprEnd : String -> P.Parser Exp
+varAndChompExprEnd : Name -> P.Parser Exp
 varAndChompExprEnd name =
     P.succeed (EVar name)
         |> P.andThen (\expr -> chompExprEnd expr)
@@ -111,7 +112,7 @@ lambda : Parser Exp
 lambda =
     P.succeed ELam
         |. backslash
-        |= variable
+        |= P.map Name.fromString variable
         |. spacesOnly
         |. P.symbol "->"
         |. ignoreablesAndCheckIndent (<) "Invalid func body indent"
