@@ -46,7 +46,6 @@ expression : Parser Exp
 expression =
     P.oneOf
         [ lambda
-        , rememberIndentation defsOrVarAndChompExprEnd
         , term |> P.andThen chompExprEnd
         ]
 
@@ -61,45 +60,6 @@ chompExprEnd expr =
                 |= term
             , P.succeed expr
             ]
-
-
-defsOrVarAndChompExprEnd : P.Parser Exp
-defsOrVarAndChompExprEnd =
-    P.loop [] defsOrVarAndChompExprEndHelp
-
-
-defsOrVarAndChompExprEndHelp : List ( Name, Exp ) -> Parser (P.Step (List ( Name, Exp )) Exp)
-defsOrVarAndChompExprEndHelp args =
-    P.oneOf
-        [ P.succeed Name.fromString
-            |= variable
-            |. spacesOnly
-            |> P.andThen
-                (\name ->
-                    P.oneOf
-                        [ P.succeed (\body -> ( name, body ))
-                            |. P.symbol "="
-                            |. ignoreablesAndCheckIndent (<) "ExpectingIndentation"
-                            |= P.lazy (\_ -> expression)
-                            |> P.map (\def2_ -> P.Loop (def2_ :: args))
-                        , if List.isEmpty args then
-                            varAndChompExprEnd name
-                                |> P.map P.Done
-
-                          else
-                            P.succeed (\expr -> ELet (List.reverse args) expr)
-                                |= varAndChompExprEnd name
-                                |> P.map P.Done
-                        ]
-                )
-        , if List.isEmpty args then
-            P.problem "Expecting defs"
-
-          else
-            P.succeed (\expr -> ELet (List.reverse args) expr)
-                |= P.lazy (\_ -> expression)
-                |> P.map P.Done
-        ]
 
 
 varAndChompExprEnd : Name -> P.Parser Exp

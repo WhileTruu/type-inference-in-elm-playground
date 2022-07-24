@@ -10,7 +10,6 @@ type Exp
     | EBool Bool
     | EApp Exp Exp
     | ELam Name Exp
-    | ELet (List ( Name, Exp )) Exp
 
 
 type Type
@@ -56,20 +55,6 @@ expToString exp =
 
         ELam s e ->
             "(Lambda " ++ Name.toString s ++ " " ++ expToString e ++ ")"
-
-        ELet defs e ->
-            let
-                defsString =
-                    "("
-                        ++ List.foldl
-                            (\( name, body ) acc ->
-                                acc ++ ", (Def " ++ Name.toString name ++ " " ++ expToString body ++ ")"
-                            )
-                            ""
-                            defs
-                        ++ ")"
-            in
-            "(Let " ++ defsString ++ " " ++ expToString e ++ ")"
 
 
 isFun : Type -> Bool

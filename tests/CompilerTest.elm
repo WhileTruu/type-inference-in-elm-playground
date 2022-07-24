@@ -73,8 +73,7 @@ compileTestSuite =
                     input =
                         String.join "\n"
                             [ "\\a ->"
-                            , "  x = 1"
-                            , "  (add a) x"
+                            , "  (add a) 1"
                             ]
                 in
                 Expect.equal (parseAndTypecheck input)
@@ -100,8 +99,7 @@ compileTestSuite =
                         String.join "\n"
                             [ "\\a ->"
                             , "  \\b ->"
-                            , "    a = 10"
-                            , "    (add a) b"
+                            , "    (add ((\\a -> a) 10)) b"
                             ]
                 in
                 Expect.equal (parseAndTypecheck input)
@@ -113,43 +111,12 @@ compileTestSuite =
                     input =
                         String.join "\n"
                             [ "\\a ->"
-                            , "  potato = 10"
-                            , "  \\b ->"
-                            , "    potato"
+                            , "  ((\\potato ->"
+                            , "     \\b ->"
+                            , "         potato"
+                            , "  ) 10)"
                             ]
                 in
                 Expect.equal (parseAndTypecheck input)
                     (Ok "∀ a b. a -> b -> Int")
-        , Test.test "ordered defs" <|
-            \_ ->
-                let
-                    input : String
-                    input =
-                        String.join "\n"
-                            [ "\\a ->"
-                            , "  mike = 10"
-                            , "  mikeAlias = mike"
-                            , "  mikeSecondAlias = mikeAlias"
-                            , "  (add mikeSecondAlias) a"
-                            ]
-                in
-                Expect.equal (parseAndTypecheck input)
-                    (Ok "Int -> Int")
-
-        -- TODO redefinition shouldn't be possible
-        -- Better as part of parsing, canonicalization or sth?
-        -- , Test.test "redefinition" <|
-        --     \_ ->
-        --         let
-        --             input : String
-        --             input =
-        --                 String.join "\n"
-        --                     [ "\\a ->"
-        --                     , "  x = 1"
-        --                     , "  x = 2"
-        --                     , "  x"
-        --                     ]
-        --         in
-        --         Expect.equal (parseAndTypecheck input)
-        --             (Ok "Int -> Int")
         ]

@@ -221,53 +221,6 @@ infer id ctx exp =
                                 )
                    )
 
-        ELet defs body ->
-            inferRecursiveDefs id ctx defs
-                |> Result.andThen
-                    (\( s1, tmpCtx, id1 ) ->
-                        infer id1 (applySubstCtx s1 tmpCtx) body
-                            |> Result.map
-                                (\( s2, tyBody, id2 ) ->
-                                    ( composeSubst s1 s2, tyBody, id2 )
-                                )
-                    )
-
-
-inferRecursiveDefs : Id -> Context -> List ( Name, Exp ) -> Result Error ( Dict Name Type, Context, Id )
-inferRecursiveDefs id ctx defs =
-    -- FIXME will create an infinite loop if there is a cycle in the definitions
-    -- Elm compiler has cycle detection in `canonicalizeLet`
-    -- (https://github.com/elm/compiler/blob/master/compiler/src/Canonicalize/Expression.hs#L297)
-    -- do sth similar somewhere?
-    inferRecursiveDefsHelp id ctx Dict.empty defs
-
-
-inferRecursiveDefsHelp : Id -> Context -> Dict Name Type -> List ( Name, Exp ) -> Result Error ( Dict Name Type, Context, Id )
-inferRecursiveDefsHelp id ctx s defs =
-    case defs of
-        [] ->
-            Ok ( s, ctx, id )
-
-        ( binder, binding ) :: otherDefs ->
-            case infer id ctx binding of
-                Ok ( s1, tyBinder, id_ ) ->
-                    let
-                        scheme : Annotation
-                        scheme =
-                            -- TODO figure out what the comment below is about :D
-                            -- https://github.com/kritzcreek/fby19/blob/master/src/Typechecker.hs#L134
-                            -- let scheme = generalize ctx (applySubst s1 t1)
-                            Annotation Dict.empty (applySubst s1 tyBinder)
-
-                        tmpCtx : Context
-                        tmpCtx =
-                            Dict.insert binder scheme ctx
-                    in
-                    inferRecursiveDefsHelp id_ tmpCtx (composeSubst s s1) otherDefs
-
-                Err _ ->
-                    inferRecursiveDefsHelp id ctx s (otherDefs ++ [ ( binder, binding ) ])
-
 
 typeInference : Id -> Context -> Exp -> Result Error ( Type, Id )
 typeInference id ctx exp =
