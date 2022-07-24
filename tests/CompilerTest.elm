@@ -2,24 +2,28 @@ module CompilerTest exposing (..)
 
 import Compiler.AST as AST exposing (Annotation)
 import Compiler.Parser as Parser
-import Compiler.Typechecker as Typechecker
+import Compiler.Typechecker.V1 as TypecheckerV1
 import Expect exposing (Expectation)
 import Test exposing (..)
 
 
-type Error
-    = TypeError Typechecker.Error
+type Error typeError
+    = TypeError typeError
     | ParseError String
 
 
-compileTestSuite : Test
-compileTestSuite =
+compileV1TestSuite : Test
+compileV1TestSuite =
+    compileTestSuite TypecheckerV1.run
+
+
+compileTestSuite : (AST.Expr -> Result error Annotation) -> Test
+compileTestSuite runTypechecker =
     let
-        parseAndTypecheck : String -> Result Error String
         parseAndTypecheck input =
             Parser.run input
                 |> Result.mapError ParseError
-                |> Result.andThen (Typechecker.run >> Result.mapError TypeError)
+                |> Result.andThen (runTypechecker >> Result.mapError TypeError)
                 |> Result.map AST.prettyScheme
     in
     Test.describe "compile"

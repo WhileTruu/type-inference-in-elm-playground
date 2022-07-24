@@ -1,4 +1,4 @@
-module Compiler.Typechecker exposing (..)
+module Compiler.Typechecker.V1 exposing (..)
 
 import AssocList as Dict exposing (Dict)
 import Compiler.AST as AST exposing (Annotation(..), Expr(..), FreeVars, Type(..))
