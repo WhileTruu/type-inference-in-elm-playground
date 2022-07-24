@@ -1,45 +1,45 @@
-module Compiler.Typechecker.V1 exposing (..)
+module Compiler.Typechecker.V1 exposing (Error, run)
 
 import AssocList as Dict exposing (Dict)
-import Compiler.AST as AST exposing (Annotation(..), Expr(..), FreeVars, Type(..))
+import Compiler.AST as AST
 import Data.Name as Name exposing (Name)
 
 
-run : Expr -> Result Error Annotation
+run : AST.Expr -> Result Error AST.Annotation
 run e =
     typeInference (Id 0) primitives e
         |> Result.map Tuple.first
         |> Result.map (generalize Dict.empty)
 
 
-applySubstitution : Dict Name Type -> Type -> Type
+applySubstitution : Dict Name AST.Type -> AST.Type -> AST.Type
 applySubstitution subst ty =
     case ty of
-        TypeVar var ->
-            Maybe.withDefault (TypeVar var) (Dict.get var subst)
+        AST.TypeVar var ->
+            Maybe.withDefault (AST.TypeVar var) (Dict.get var subst)
 
-        TypeLambda arg res ->
-            TypeLambda (applySubstitution subst arg) (applySubstitution subst res)
+        AST.TypeLambda arg res ->
+            AST.TypeLambda (applySubstitution subst arg) (applySubstitution subst res)
 
-        TypeInt ->
-            TypeInt
+        AST.TypeInt ->
+            AST.TypeInt
 
-        TypeBool ->
-            TypeBool
+        AST.TypeBool ->
+            AST.TypeBool
 
 
-applySubstitutionAnnotation : Dict Name Type -> Annotation -> Annotation
-applySubstitutionAnnotation subst (Annotation vars t) =
+applySubstitutionAnnotation : Dict Name AST.Type -> AST.Annotation -> AST.Annotation
+applySubstitutionAnnotation subst (AST.Forall vars t) =
     -- The fold takes care of name shadowing
     -- TODO just get rid of shadowing?
-    Annotation vars (applySubstitution (Dict.diff subst vars) t)
+    AST.Forall vars (applySubstitution (Dict.diff subst vars) t)
 
 
 {-| TODO: I'm not sure what the relevance of that is, but
 <https://github.com/kritzcreek/fby19/blob/master/src/Typechecker.hs> has the
 following warning: "This is much more subtle than it seems. (union is left biased)"
 -}
-composeSubstitution : Dict Name Type -> Dict Name Type -> Dict Name Type
+composeSubstitution : Dict Name AST.Type -> Dict Name AST.Type -> Dict Name AST.Type
 composeSubstitution s1 s2 =
     Dict.union (Dict.map (\_ -> applySubstitution s1) s2) s1
 
@@ -58,34 +58,34 @@ idToString (Id id) =
     String.fromInt id
 
 
-newTypeVar : Id -> ( Type, Id )
+newTypeVar : Id -> ( AST.Type, Id )
 newTypeVar id =
-    ( TypeVar (Name.fromString ("u" ++ idToString id)), incrementId id )
+    ( AST.TypeVar (Name.fromString ("u" ++ idToString id)), incrementId id )
 
 
-freeTypeVars : Type -> FreeVars
+freeTypeVars : AST.Type -> AST.FreeVars
 freeTypeVars ty =
     case ty of
-        TypeVar var ->
+        AST.TypeVar var ->
             Dict.singleton var ()
 
-        TypeLambda t1 t2 ->
+        AST.TypeLambda t1 t2 ->
             Dict.union (freeTypeVars t1) (freeTypeVars t2)
 
         _ ->
             Dict.empty
 
 
-freeTypeVarsScheme : Annotation -> FreeVars
-freeTypeVarsScheme (Annotation vars t) =
+freeTypeVarsScheme : AST.Annotation -> AST.FreeVars
+freeTypeVarsScheme (AST.Forall vars t) =
     Dict.diff (freeTypeVars t) vars
 
 
 {-| Creates a fresh unification variable and binds it to the given type
 -}
-varBind : Name -> Type -> Result Error (Dict Name Type)
+varBind : Name -> AST.Type -> Result Error (Dict Name AST.Type)
 varBind var ty =
-    if ty == TypeVar var then
+    if ty == AST.TypeVar var then
         Ok Dict.empty
 
     else if Dict.member var (freeTypeVars ty) then
@@ -95,16 +95,16 @@ varBind var ty =
         Ok (Dict.singleton var ty)
 
 
-unify : Type -> Type -> Result Error (Dict Name Type)
+unify : AST.Type -> AST.Type -> Result Error (Dict Name AST.Type)
 unify ty1 ty2 =
     case ( ty1, ty2 ) of
-        ( TypeInt, TypeInt ) ->
+        ( AST.TypeInt, AST.TypeInt ) ->
             Ok Dict.empty
 
-        ( TypeBool, TypeBool ) ->
+        ( AST.TypeBool, AST.TypeBool ) ->
             Ok Dict.empty
 
-        ( TypeLambda l r, TypeLambda l_ r_ ) ->
+        ( AST.TypeLambda l r, AST.TypeLambda l_ r_ ) ->
             unify l l_
                 |> Result.andThen
                     (\s1 ->
@@ -112,10 +112,10 @@ unify ty1 ty2 =
                             |> Result.map (\s2 -> composeSubstitution s1 s2)
                     )
 
-        ( TypeVar u, t ) ->
+        ( AST.TypeVar u, t ) ->
             varBind u t
 
-        ( t, TypeVar u ) ->
+        ( t, AST.TypeVar u ) ->
             varBind u t
 
         ( t1, t2 ) ->
@@ -123,31 +123,31 @@ unify ty1 ty2 =
 
 
 type alias Context =
-    Dict Name Annotation
+    Dict Name AST.Annotation
 
 
-applySubstitutionContext : Dict Name Type -> Context -> Context
+applySubstitutionContext : Dict Name AST.Type -> Context -> Context
 applySubstitutionContext subst ctx =
     Dict.map (\_ -> applySubstitutionAnnotation subst) ctx
 
 
-freeTypeVarsContext : Context -> FreeVars
+freeTypeVarsContext : Context -> AST.FreeVars
 freeTypeVarsContext ctx =
     List.foldl (\a acc -> Dict.union (freeTypeVarsScheme a) acc) Dict.empty (Dict.values ctx)
 
 
-generalize : Context -> Type -> Annotation
+generalize : Context -> AST.Type -> AST.Annotation
 generalize ctx t =
     let
-        vars : FreeVars
+        vars : AST.FreeVars
         vars =
             Dict.diff (freeTypeVars t) (freeTypeVarsContext ctx)
     in
-    Annotation vars t
+    AST.Forall vars t
 
 
-instantiate : Id -> Annotation -> ( Type, Id )
-instantiate id (Annotation vars ty) =
+instantiate : Id -> AST.Annotation -> ( AST.Type, Id )
+instantiate id (AST.Forall vars ty) =
     List.foldl
         (\_ ( acc, id1 ) ->
             let
@@ -160,7 +160,7 @@ instantiate id (Annotation vars ty) =
         (Dict.keys vars)
         |> (\( newVars, id1 ) ->
                 let
-                    subst : Dict Name Type
+                    subst : Dict Name AST.Type
                     subst =
                         Dict.fromList (List.map2 Tuple.pair (Dict.keys vars) newVars)
                 in
@@ -168,10 +168,10 @@ instantiate id (Annotation vars ty) =
            )
 
 
-infer : Id -> Context -> Expr -> Result Error ( Dict Name Type, Type, Id )
+infer : Id -> Context -> AST.Expr -> Result Error ( Dict Name AST.Type, AST.Type, Id )
 infer id context expr =
     case expr of
-        ExprVar var ->
+        AST.ExprVar var ->
             case Dict.get var context of
                 Nothing ->
                     Err (UnboundVariable var)
@@ -182,13 +182,13 @@ infer id context expr =
                                 Ok ( Dict.empty, ty, id_ )
                            )
 
-        ExprInt _ ->
-            Ok ( Dict.empty, TypeInt, id )
+        AST.ExprInt _ ->
+            Ok ( Dict.empty, AST.TypeInt, id )
 
-        ExprBool _ ->
-            Ok ( Dict.empty, TypeBool, id )
+        AST.ExprBool _ ->
+            Ok ( Dict.empty, AST.TypeBool, id )
 
-        ExprCall fun arg ->
+        AST.ExprCall fun arg ->
             newTypeVar id
                 |> (\( tyRes, id1 ) ->
                         infer id1 context fun
@@ -197,7 +197,7 @@ infer id context expr =
                                     infer id2 (applySubstitutionContext s1 context) arg
                                         |> Result.andThen
                                             (\( s2, tyArg, id3 ) ->
-                                                unify (applySubstitution s2 tyFun) (TypeLambda tyArg tyRes)
+                                                unify (applySubstitution s2 tyFun) (AST.TypeLambda tyArg tyRes)
                                                     |> Result.map
                                                         (\s3 ->
                                                             ( composeSubstitution s1 (composeSubstitution s2 s3), applySubstitution s3 tyRes, id3 )
@@ -206,23 +206,23 @@ infer id context expr =
                                 )
                    )
 
-        ExprLambda binder body ->
+        AST.ExprLambda binder body ->
             newTypeVar id
                 |> (\( tyBinder, id1 ) ->
                         let
                             tmpCtx : Context
                             tmpCtx =
-                                Dict.insert binder (Annotation Dict.empty tyBinder) context
+                                Dict.insert binder (AST.Forall Dict.empty tyBinder) context
                         in
                         infer id1 tmpCtx body
                             |> Result.map
                                 (\( s1, tyBody, id2 ) ->
-                                    ( s1, TypeLambda (applySubstitution s1 tyBinder) tyBody, id2 )
+                                    ( s1, AST.TypeLambda (applySubstitution s1 tyBinder) tyBody, id2 )
                                 )
                    )
 
 
-typeInference : Id -> Context -> Expr -> Result Error ( Type, Id )
+typeInference : Id -> Context -> AST.Expr -> Result Error ( AST.Type, Id )
 typeInference id ctx exp =
     infer id ctx exp
         |> Result.map (\( s, t, id1 ) -> ( applySubstitution s t, id1 ))
@@ -232,29 +232,38 @@ primitives : Context
 primitives =
     Dict.fromList
         [ ( Name.fromString "identity"
-          , Annotation (Dict.singleton (Name.fromString "a") ())
-                (TypeLambda (TypeVar (Name.fromString "a")) (TypeVar (Name.fromString "a")))
+          , AST.Forall (Dict.singleton (Name.fromString "a") ())
+                (AST.TypeLambda (AST.TypeVar (Name.fromString "a")) (AST.TypeVar (Name.fromString "a")))
           )
         , ( Name.fromString "const"
-          , Annotation (Dict.fromList [ ( Name.fromString "a", () ), ( Name.fromString "b", () ) ])
-                (TypeLambda
-                    (TypeVar (Name.fromString "a"))
-                    (TypeLambda
-                        (TypeVar (Name.fromString "b"))
-                        (TypeVar (Name.fromString "a"))
+          , AST.Forall (Dict.fromList [ ( Name.fromString "a", () ), ( Name.fromString "b", () ) ])
+                (AST.TypeLambda
+                    (AST.TypeVar (Name.fromString "a"))
+                    (AST.TypeLambda
+                        (AST.TypeVar (Name.fromString "b"))
+                        (AST.TypeVar (Name.fromString "a"))
                     )
                 )
           )
-        , ( Name.fromString "add", Annotation Dict.empty (TypeLambda TypeInt (TypeLambda TypeInt TypeInt)) )
-        , ( Name.fromString "gte", Annotation Dict.empty (TypeLambda TypeInt (TypeLambda TypeInt TypeBool)) )
+        , ( Name.fromString "add"
+          , AST.Forall Dict.empty
+                (AST.TypeLambda
+                    AST.TypeInt
+                    (AST.TypeLambda AST.TypeInt AST.TypeInt)
+                )
+          )
+        , ( Name.fromString "gte"
+          , AST.Forall Dict.empty
+                (AST.TypeLambda AST.TypeInt (AST.TypeLambda AST.TypeInt AST.TypeBool))
+          )
         , ( Name.fromString "if"
-          , Annotation (Dict.singleton (Name.fromString "a") ())
-                (TypeLambda TypeBool
-                    (TypeLambda
-                        (TypeVar (Name.fromString "a"))
-                        (TypeLambda
-                            (TypeVar (Name.fromString "a"))
-                            (TypeVar (Name.fromString "a"))
+          , AST.Forall (Dict.singleton (Name.fromString "a") ())
+                (AST.TypeLambda AST.TypeBool
+                    (AST.TypeLambda
+                        (AST.TypeVar (Name.fromString "a"))
+                        (AST.TypeLambda
+                            (AST.TypeVar (Name.fromString "a"))
+                            (AST.TypeVar (Name.fromString "a"))
                         )
                     )
                 )
@@ -268,7 +277,7 @@ primitives =
 
 type Error
     = OccursCheckFailed
-    | TypesDoNotUnify Type Type
+    | TypesDoNotUnify AST.Type AST.Type
     | UnboundVariable Name
 
 

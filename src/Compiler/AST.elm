@@ -20,7 +20,7 @@ type Type
 
 
 type Annotation
-    = Annotation FreeVars Type
+    = Forall FreeVars Type
 
 
 type alias FreeVars =
@@ -91,7 +91,7 @@ prettyType ty =
 
 
 prettyScheme : Annotation -> String
-prettyScheme (Annotation vars ty) =
+prettyScheme (Forall vars ty) =
     case Dict.keys vars of
         [] ->
             prettyType ty
