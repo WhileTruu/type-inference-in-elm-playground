@@ -1,4 +1,4 @@
-module Compiler.Typechecker.V1 exposing (Error, run)
+module Compiler.Typechecker.V1 exposing (Error, errorToString, run)
 
 import AssocList as Dict exposing (Dict)
 import Compiler.AST as AST
