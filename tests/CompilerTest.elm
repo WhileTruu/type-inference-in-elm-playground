@@ -4,6 +4,7 @@ import Compiler.AST as AST exposing (Annotation)
 import Compiler.Parser as Parser
 import Compiler.Typechecker.V1 as TypecheckerV1
 import Compiler.Typechecker.V2 as TypecheckerV2
+import Compiler.Typechecker.V3 as TypecheckerV3
 import Examples
 import Expect exposing (Expectation)
 import Test exposing (..)
@@ -22,6 +23,11 @@ compileV1TestSuite =
 compileV2TestSuite : Test
 compileV2TestSuite =
     compileTestSuite "typechecker v2" TypecheckerV2.run
+
+
+compileV3TestSuite : Test
+compileV3TestSuite =
+    compileTestSuite "typechecker v3" TypecheckerV3.run
 
 
 compileTestSuite : String -> (AST.Expr -> Result error Annotation) -> Test
