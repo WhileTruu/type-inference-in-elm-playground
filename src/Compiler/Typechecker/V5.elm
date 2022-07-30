@@ -13,17 +13,16 @@ import Data.Name as Name exposing (Name)
 
 
 run : Expr -> Result TypeError Annotation
-run e =
-    infer e
-        { id = Id 0
-        , env = primitives
-        , constraint = CTrue
-        }
+run expr =
+    let
+        ( expectedType, id ) =
+            fresh (Id 0)
+    in
+    infer id primitives expr expectedType
         |> Result.andThen
-            (\( t, stuff ) ->
-                solve2 stuff.constraint nullSubst
-                    |> Debug.log "what3"
-                    |> Result.map (\s -> applySubst s t)
+            (\( con, _ ) ->
+                solve con nullSubst
+                    |> Result.map (\s -> applySubst s expectedType)
             )
         |> Result.map (generalize (TypeEnv Dict.empty))
 
@@ -253,68 +252,91 @@ type alias Stuff =
 type Constraint
     = CEqual Type Type
     | CAnd (List Constraint)
-    | CTrue
 
 
-infer : Expr -> Stuff -> Result TypeError ( Type, Stuff )
-infer exp ({ id, env } as stuff) =
+infer : Id -> TypeEnv -> Expr -> Type -> Result TypeError ( Constraint, Id )
+infer id env exp expected =
     case exp of
         ExprVar var ->
-            lookupEnv var stuff
+            lookupEnv id env var
+                |> Result.map (\( varType, id1 ) -> ( CEqual varType expected, id1 ))
 
-        ExprLambda x e ->
-            let
-                ( tv, id1 ) =
-                    fresh id
+        ExprLambda arg body ->
+            inferLambda id env arg body expected
 
-                tmpEnv : TypeEnv
-                tmpEnv =
-                    extend env ( x, Forall Dict.empty tv )
-            in
-            infer e { stuff | id = id1, env = tmpEnv }
-                |> Result.map
-                    (\( t, stuff1 ) ->
-                        ( TypeLambda tv t, { stuff1 | env = stuff.env } )
-                    )
-
-        ExprCall e1 e2 ->
-            infer e1 stuff
-                |> Result.andThen
-                    (\( t1, stuff1 ) ->
-                        infer e2 stuff1
-                            |> Result.map
-                                (\( t2, stuff2 ) ->
-                                    let
-                                        ( tv, id1 ) =
-                                            fresh stuff2.id
-                                    in
-                                    ( tv
-                                    , { stuff2
-                                        | id = id1
-                                        , constraint = CAnd [ CEqual t1 (TypeLambda t2 tv), stuff2.constraint ]
-                                      }
-                                    )
-                                )
-                    )
+        ExprCall func arg ->
+            inferCall id env func arg expected
 
         ExprInt _ ->
-            Ok ( TypeInt, stuff )
+            Ok ( CEqual TypeInt expected, id )
 
         ExprBool _ ->
-            Ok ( TypeBool, stuff )
+            Ok ( CEqual TypeBool expected, id )
 
 
-lookupEnv : Name -> Stuff -> Result TypeError ( Type, Stuff )
-lookupEnv x ({ env, id } as stuff) =
+inferLambda : Id -> TypeEnv -> Name -> Expr -> Type -> Result TypeError ( Constraint, Id )
+inferLambda id env arg body expected =
+    let
+        ( argType, id1 ) =
+            fresh id
+
+        ( resultType, id2 ) =
+            fresh id1
+
+        tmpEnv : TypeEnv
+        tmpEnv =
+            extend env ( arg, Forall Dict.empty argType )
+    in
+    infer id2 tmpEnv body resultType
+        |> Result.map
+            (\( bodyCon, id3 ) ->
+                ( CAnd
+                    [ bodyCon
+                    , CEqual (TypeLambda argType resultType) expected
+                    ]
+                , id3
+                )
+            )
+
+
+inferCall : Id -> TypeEnv -> Expr -> Expr -> Type -> Result TypeError ( Constraint, Id )
+inferCall id env func arg expected =
+    let
+        ( funcType, id1 ) =
+            fresh id
+
+        ( argType, id2 ) =
+            fresh id1
+
+        ( resultType, id3 ) =
+            fresh id2
+    in
+    infer id3 env func funcType
+        |> Result.andThen
+            (\( funcCon, id4 ) ->
+                infer id4 env arg argType
+                    |> Result.map
+                        (\( argCon, id5 ) ->
+                            ( CAnd
+                                [ funcCon
+                                , CEqual funcType (TypeLambda argType resultType)
+                                , argCon
+                                , CEqual resultType expected
+                                ]
+                            , id5
+                            )
+                        )
+            )
+
+
+lookupEnv : Id -> TypeEnv -> Name -> Result TypeError ( Type, Id )
+lookupEnv id env x =
     case Dict.get x ((\(TypeEnv a) -> a) env) of
         Nothing ->
             Err (UnboundVariable x)
 
         Just scheme ->
-            instantiate id scheme
-                |> (\( t, id1 ) ->
-                        Ok ( t, { stuff | id = id1 } )
-                   )
+            Ok (instantiate id scheme)
 
 
 
@@ -359,45 +381,19 @@ unifyMany xs1 xs2 =
             Err (UnificationMismatch t1 t2)
 
 
-solve : List ( Type, Type ) -> Result TypeError Subst
-solve constraints =
-    case constraints of
-        [] ->
-            Ok nullSubst
-
-        ( t1, t2 ) :: cs0 ->
-            unifies t1 t2
-                |> Result.andThen
-                    (\su1 ->
-                        solve
-                            (List.map (Tuple.mapBoth (applySubst su1) (applySubst su1))
-                                cs0
-                            )
-                            |> Result.map
-                                (\su2 ->
-                                    Dict.union su1 su2
-                                )
-                    )
-
-
-solve2 : Constraint -> Subst -> Result TypeError Subst
-solve2 constraint subst =
+solve : Constraint -> Subst -> Result TypeError Subst
+solve constraint subst =
     case constraint of
-        CTrue ->
-            Ok nullSubst
-
         CEqual t1 t2 ->
             unifies (applySubst subst t1) (applySubst subst t2)
 
         CAnd constraints ->
             List.foldl
-                (\con sur ->
+                (\constraint1 ->
                     Result.andThen
-                        (\su ->
-                            solve2 con su
-                                |> Result.map (Dict.union su)
+                        (\subst1 ->
+                            Result.map (composeSubst subst1) (solve constraint1 subst1)
                         )
-                        sur
                 )
                 (Ok subst)
                 constraints
