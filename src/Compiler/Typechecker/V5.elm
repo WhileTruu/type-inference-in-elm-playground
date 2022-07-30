@@ -18,10 +18,10 @@ run expr =
         ( expectedType, id ) =
             fresh (Id 0)
     in
-    infer id primitives expr expectedType
+    constrain id primitives expr expectedType
         |> Result.andThen
-            (\( con, _ ) ->
-                solve con nullSubst
+            (\( constraint, _ ) ->
+                solve constraint nullSubst
                     |> Result.map (\s -> applySubst s expectedType)
             )
         |> Result.map (generalize (TypeEnv Dict.empty))
@@ -123,53 +123,27 @@ applySubst subst type_ =
 
 
 
--- UNIFICATION
+-- GENERALIZATION
 
 
-unify : Type -> Type -> Result TypeError Subst
-unify ty1 ty2 =
-    case ( ty1, ty2 ) of
-        ( TypeLambda l r, TypeLambda l_ r_ ) ->
-            unify l l_
-                |> Result.andThen
-                    (\s1 ->
-                        unify (applySubst s1 r) (applySubst s1 r_)
-                            |> Result.map (\s2 -> composeSubst s1 s2)
-                    )
-
-        ( TypeVar a, t ) ->
-            bind a t
-
-        ( t, TypeVar a ) ->
-            bind a t
-
-        ( TypeInt, TypeInt ) ->
-            Ok nullSubst
-
-        ( TypeBool, TypeBool ) ->
-            Ok nullSubst
-
-        ( t1, t2 ) ->
-            Err (UnificationFail t1 t2)
+generalize : TypeEnv -> Type -> Annotation
+generalize env t =
+    let
+        vars : FreeVars
+        vars =
+            Dict.diff (ftv t) (ftvEnv env)
+    in
+    Forall vars t
 
 
-{-| Creates a fresh unification variable and binds it to the given type
--}
-bind : Name -> Type -> Result TypeError Subst
-bind a t =
-    if t == TypeVar a then
-        Ok Dict.empty
-
-    else if occursCheck a t then
-        Result.Err (InfiniteType (TypeVar a) t)
-
-    else
-        Ok (Dict.singleton a t)
+ftvEnv : TypeEnv -> FreeVars
+ftvEnv (TypeEnv ctx) =
+    List.foldl (\a acc -> Dict.union (ftvAnnotation a) acc) Dict.empty (Dict.values ctx)
 
 
-occursCheck : Name -> Type -> Bool
-occursCheck a t =
-    Dict.member a (ftv t)
+ftvAnnotation : Annotation -> FreeVars
+ftvAnnotation (Forall vars t) =
+    Dict.diff (ftv t) vars
 
 
 ftv : Type -> FreeVars
@@ -189,7 +163,97 @@ ftv ty =
 
 
 
--- GENERALIZATION
+-- TYPING RULES
+
+
+type Constraint
+    = CEqual Type Type
+    | CAnd (List Constraint)
+
+
+constrain : Id -> TypeEnv -> Expr -> Type -> Result TypeError ( Constraint, Id )
+constrain id env exp expected =
+    case exp of
+        ExprVar var ->
+            lookupEnv id env var
+                |> Result.map (\( varType, id1 ) -> ( CEqual varType expected, id1 ))
+
+        ExprLambda arg body ->
+            constrainLambda id env arg body expected
+
+        ExprCall func arg ->
+            constrainCall id env func arg expected
+
+        ExprInt _ ->
+            Ok ( CEqual TypeInt expected, id )
+
+        ExprBool _ ->
+            Ok ( CEqual TypeBool expected, id )
+
+
+constrainLambda : Id -> TypeEnv -> Name -> Expr -> Type -> Result TypeError ( Constraint, Id )
+constrainLambda id env arg body expected =
+    let
+        ( argType, id1 ) =
+            fresh id
+
+        ( resultType, id2 ) =
+            fresh id1
+
+        tmpEnv : TypeEnv
+        tmpEnv =
+            extend env ( arg, Forall Dict.empty argType )
+    in
+    constrain id2 tmpEnv body resultType
+        |> Result.map
+            (\( bodyCon, id3 ) ->
+                ( CAnd
+                    [ bodyCon
+                    , CEqual (TypeLambda argType resultType) expected
+                    ]
+                , id3
+                )
+            )
+
+
+constrainCall : Id -> TypeEnv -> Expr -> Expr -> Type -> Result TypeError ( Constraint, Id )
+constrainCall id env func arg expected =
+    let
+        ( funcType, id1 ) =
+            fresh id
+
+        ( argType, id2 ) =
+            fresh id1
+
+        ( resultType, id3 ) =
+            fresh id2
+    in
+    constrain id3 env func funcType
+        |> Result.andThen
+            (\( funcCon, id4 ) ->
+                constrain id4 env arg argType
+                    |> Result.map
+                        (\( argCon, id5 ) ->
+                            ( CAnd
+                                [ funcCon
+                                , CEqual funcType (TypeLambda argType resultType)
+                                , argCon
+                                , CEqual resultType expected
+                                ]
+                            , id5
+                            )
+                        )
+            )
+
+
+lookupEnv : Id -> TypeEnv -> Name -> Result TypeError ( Type, Id )
+lookupEnv id env x =
+    case Dict.get x ((\(TypeEnv a) -> a) env) of
+        Nothing ->
+            Err (UnboundVariable x)
+
+        Just scheme ->
+            Ok (instantiate id scheme)
 
 
 instantiate : Id -> Annotation -> ( Type, Id )
@@ -218,127 +282,6 @@ instantiate id (Forall vars ty) =
            )
 
 
-generalize : TypeEnv -> Type -> Annotation
-generalize env t =
-    let
-        vars : FreeVars
-        vars =
-            Dict.diff (ftv t) (ftvEnv env)
-    in
-    Forall vars t
-
-
-ftvEnv : TypeEnv -> FreeVars
-ftvEnv (TypeEnv ctx) =
-    List.foldl (\a acc -> Dict.union (ftvAnnotation a) acc) Dict.empty (Dict.values ctx)
-
-
-ftvAnnotation : Annotation -> FreeVars
-ftvAnnotation (Forall vars t) =
-    Dict.diff (ftv t) vars
-
-
-
--- TYPING RULES
-
-
-type alias Stuff =
-    { id : Id
-    , env : TypeEnv
-    , constraint : Constraint
-    }
-
-
-type Constraint
-    = CEqual Type Type
-    | CAnd (List Constraint)
-
-
-infer : Id -> TypeEnv -> Expr -> Type -> Result TypeError ( Constraint, Id )
-infer id env exp expected =
-    case exp of
-        ExprVar var ->
-            lookupEnv id env var
-                |> Result.map (\( varType, id1 ) -> ( CEqual varType expected, id1 ))
-
-        ExprLambda arg body ->
-            inferLambda id env arg body expected
-
-        ExprCall func arg ->
-            inferCall id env func arg expected
-
-        ExprInt _ ->
-            Ok ( CEqual TypeInt expected, id )
-
-        ExprBool _ ->
-            Ok ( CEqual TypeBool expected, id )
-
-
-inferLambda : Id -> TypeEnv -> Name -> Expr -> Type -> Result TypeError ( Constraint, Id )
-inferLambda id env arg body expected =
-    let
-        ( argType, id1 ) =
-            fresh id
-
-        ( resultType, id2 ) =
-            fresh id1
-
-        tmpEnv : TypeEnv
-        tmpEnv =
-            extend env ( arg, Forall Dict.empty argType )
-    in
-    infer id2 tmpEnv body resultType
-        |> Result.map
-            (\( bodyCon, id3 ) ->
-                ( CAnd
-                    [ bodyCon
-                    , CEqual (TypeLambda argType resultType) expected
-                    ]
-                , id3
-                )
-            )
-
-
-inferCall : Id -> TypeEnv -> Expr -> Expr -> Type -> Result TypeError ( Constraint, Id )
-inferCall id env func arg expected =
-    let
-        ( funcType, id1 ) =
-            fresh id
-
-        ( argType, id2 ) =
-            fresh id1
-
-        ( resultType, id3 ) =
-            fresh id2
-    in
-    infer id3 env func funcType
-        |> Result.andThen
-            (\( funcCon, id4 ) ->
-                infer id4 env arg argType
-                    |> Result.map
-                        (\( argCon, id5 ) ->
-                            ( CAnd
-                                [ funcCon
-                                , CEqual funcType (TypeLambda argType resultType)
-                                , argCon
-                                , CEqual resultType expected
-                                ]
-                            , id5
-                            )
-                        )
-            )
-
-
-lookupEnv : Id -> TypeEnv -> Name -> Result TypeError ( Type, Id )
-lookupEnv id env x =
-    case Dict.get x ((\(TypeEnv a) -> a) env) of
-        Nothing ->
-            Err (UnboundVariable x)
-
-        Just scheme ->
-            Ok (instantiate id scheme)
-
-
 
 -- CONSTRAINT SOLVER
 
@@ -361,6 +304,25 @@ unifies t1 t2 =
 
             ( _, _ ) ->
                 Err (UnificationFail t1 t2)
+
+
+{-| Creates a fresh unification variable and binds it to the given type
+-}
+bind : Name -> Type -> Result TypeError Subst
+bind a t =
+    if t == TypeVar a then
+        Ok Dict.empty
+
+    else if occursCheck a t then
+        Result.Err (InfiniteType (TypeVar a) t)
+
+    else
+        Ok (Dict.singleton a t)
+
+
+occursCheck : Name -> Type -> Bool
+occursCheck a t =
+    Dict.member a (ftv t)
 
 
 unifyMany : List Type -> List Type -> Result TypeError Subst
