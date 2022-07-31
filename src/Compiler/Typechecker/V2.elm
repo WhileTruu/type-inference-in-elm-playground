@@ -1,4 +1,4 @@
-module Compiler.Typechecker.V2 exposing (..)
+module Compiler.Typechecker.V2 exposing (errorToString, getSubstitutions, run)
 
 {-| Based on the first part of type inference form "Write you a Haskell".
 -}
@@ -18,6 +18,12 @@ run e =
         |> Result.map (\( s, t, id1 ) -> ( applySubst s t, id1 ))
         |> Result.map Tuple.first
         |> Result.map (generalize (TypeEnv Dict.empty))
+
+
+getSubstitutions : Expr -> Result TypeError (Dict Name Type)
+getSubstitutions expr =
+    infer (Id 0) primitives expr
+        |> Result.map (\( s, t, _ ) -> Dict.insert (Name.fromString "u0") t s)
 
 
 primitives : TypeEnv
@@ -310,3 +316,8 @@ type TypeError
     = UnificationFail Type Type
     | InfiniteType Type Type
     | UnboundVariable Name
+
+
+errorToString : TypeError -> String
+errorToString error =
+    Debug.toString error

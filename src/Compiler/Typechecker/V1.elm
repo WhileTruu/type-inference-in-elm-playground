@@ -1,4 +1,4 @@
-module Compiler.Typechecker.V1 exposing (Error, errorToString, run)
+module Compiler.Typechecker.V1 exposing (Error, errorToString, getSubstitutions, run)
 
 {-| Based on "Type inference from scratch for f(by)2019"
 <https://www.youtube.com/watch?v=ytPAlhnAKro>
@@ -15,6 +15,12 @@ run e =
     typeInference (Id 0) primitives e
         |> Result.map Tuple.first
         |> Result.map (generalize Dict.empty)
+
+
+getSubstitutions : AST.Expr -> Result Error (Dict Name AST.Type)
+getSubstitutions expr =
+    infer (Id 0) primitives expr
+        |> Result.map (\( s, t, _ ) -> Dict.insert (Name.fromString "u0") t s)
 
 
 applySubstitution : Dict Name AST.Type -> AST.Type -> AST.Type

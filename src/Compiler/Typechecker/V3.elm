@@ -1,4 +1,4 @@
-module Compiler.Typechecker.V3 exposing (..)
+module Compiler.Typechecker.V3 exposing (errorToString, getSubstitutions, run)
 
 {-| Loosely based on "Write you a Haskell" with type equations / constraints,
 since that part was pretty sparse on information I could piece together.
@@ -26,6 +26,20 @@ run e =
                     |> Result.map (\s -> applySubst s t)
             )
         |> Result.map (generalize (TypeEnv Dict.empty))
+
+
+getSubstitutions : Expr -> Result TypeError (Dict Name Type)
+getSubstitutions expr =
+    infer expr
+        { id = Id 0
+        , env = primitives
+        , constraints = []
+        }
+        |> Result.andThen
+            (\( t, stuff ) ->
+                solve stuff.constraints
+                    |> Result.map (\s -> Dict.insert (Name.fromString "u0") t s)
+            )
 
 
 primitives : TypeEnv
@@ -383,3 +397,8 @@ type TypeError
     | InfiniteType Type Type
     | UnboundVariable Name
     | UnificationMismatch (List Type) (List Type)
+
+
+errorToString : TypeError -> String
+errorToString error =
+    Debug.toString error

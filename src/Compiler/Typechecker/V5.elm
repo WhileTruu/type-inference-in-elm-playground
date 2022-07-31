@@ -1,4 +1,4 @@
-module Compiler.Typechecker.V5 exposing (..)
+module Compiler.Typechecker.V5 exposing (errorToString, getSubstitutions, run)
 
 {-| A step towards Elm-compiler-like constraint based type checking.
 -}
@@ -14,16 +14,27 @@ import Data.Name as Name exposing (Name)
 
 run : Expr -> Result TypeError Annotation
 run expr =
+    infer expr
+        |> Result.map (\( s, t ) -> applySubst s t)
+        |> Result.map (generalize (TypeEnv Dict.empty))
+
+
+infer : Expr -> Result TypeError ( Dict Name Type, Type )
+infer expr =
     let
         ( expectedType, id ) =
             fresh (Id 0)
     in
     constrain id primitives expr expectedType
         |> (\( constraint, _ ) ->
-                solve primitives constraint nullSubst
-                    |> Result.map (\s -> applySubst s expectedType)
+                Result.map (\a -> ( a, expectedType )) (solve primitives constraint nullSubst)
            )
-        |> Result.map (generalize (TypeEnv Dict.empty))
+
+
+getSubstitutions : Expr -> Result TypeError (Dict Name Type)
+getSubstitutions expr =
+    infer expr
+        |> Result.map (\( s, t ) -> Dict.insert (Name.fromString "u0") t s)
 
 
 primitives : RTV
