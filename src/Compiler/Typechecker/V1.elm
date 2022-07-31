@@ -200,7 +200,7 @@ infer id context expr =
                                                 unify (applySubstitution s2 tyFun) (AST.TypeLambda tyArg tyRes)
                                                     |> Result.map
                                                         (\s3 ->
-                                                            ( composeSubstitution s1 (composeSubstitution s2 s3), applySubstitution s3 tyRes, id3 )
+                                                            ( composeSubstitution s3 (composeSubstitution s2 s1), applySubstitution s3 tyRes, id3 )
                                                         )
                                             )
                                 )

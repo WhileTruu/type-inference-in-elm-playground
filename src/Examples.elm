@@ -84,4 +84,18 @@ examples =
                 ]
       , annotation = "∀ a b. a -> b -> Int"
       }
+    , { name = "complex weird stuff"
+      , code =
+            String.join "\n"
+                [ "\\f1 ->"
+                , "  (\\f2 ->"
+                , "    \\n ->"
+                , "      \\a ->"
+                , "        \\b ->"
+                , "           (((if ((gte 0) a)) (a)) ((((f2 ((add n) 1)) b) ((add a) b))))"
+                , "  )"
+                , "    (\\a -> f1 a)"
+                ]
+      , annotation = "(Int -> Int -> Int -> Int) -> Int -> Int -> Int -> Int"
+      }
     ]

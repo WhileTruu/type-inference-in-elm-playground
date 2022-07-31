@@ -268,7 +268,7 @@ infer id env exp =
                             |> Result.andThen
                                 (\( s2, t2, id3 ) ->
                                     unify (applySubst s2 t1) (TypeLambda t2 tv)
-                                        |> Result.map (\s3 -> ( composeSubst s1 (composeSubst s2 s3), applySubst s3 tv, id3 ))
+                                        |> Result.map (\s3 -> ( composeSubst s3 (composeSubst s2 s1), applySubst s3 tv, id3 ))
                                 )
                     )
 

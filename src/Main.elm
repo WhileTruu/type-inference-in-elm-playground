@@ -1,9 +1,10 @@
 module Main exposing (main)
 
+import AssocList as Dict
 import Browser
 import Compiler.AST as AST exposing (Expr)
 import Compiler.Parser as Parser
-import Compiler.Typechecker.V1 as Typechecker
+import Compiler.Typechecker.V5 as Typechecker
 import Data.Name as Name
 import Element as El
 import Element.Background as ElBackground
@@ -75,7 +76,7 @@ view model =
                 )
                 Examples.examples
             )
-        , El.column [ El.alignTop, El.spacing 30, El.width (El.px 500) ]
+        , El.column [ El.alignTop, El.spacing 30, El.width (El.px 700) ]
             [ ElInput.multiline []
                 { onChange = InputChanged
                 , text = model.input
@@ -87,26 +88,13 @@ view model =
                 { onPress = Just CompileClicked
                 , label = El.text "Compile"
                 }
-            , El.el []
+            , El.column [ El.width El.fill, El.height El.fill, El.spacing 30 ]
                 (case model.output of
-                    Ok output ->
-                        El.text <| "Success: " ++ AST.exprToString output
+                    Ok expr ->
+                        viewExprStuff expr
 
                     Err err ->
-                        El.text <| "Error: " ++ err
-                )
-            , El.el []
-                (model.output
-                    |> Result.map
-                        (\expr ->
-                            case Typechecker.run expr of
-                                Ok output ->
-                                    El.text <| "Success: " ++ AST.prettyScheme (Debug.log "" output)
-
-                                Err err ->
-                                    El.text <| "Error: " ++ Typechecker.errorToString err
-                        )
-                    |> Result.withDefault (El.text "")
+                        [ El.text <| "Error: " ++ err ]
                 )
             ]
         , case model.output of
@@ -116,6 +104,48 @@ view model =
             Err err ->
                 El.none
         ]
+
+
+viewExprStuff : Expr -> List (El.Element Msg)
+viewExprStuff expr =
+    [ El.el [] (El.text (AST.exprToString expr))
+    , El.el []
+        (case Typechecker.run expr of
+            Ok output ->
+                El.text <| "Success: " ++ AST.prettyScheme output
+
+            Err err ->
+                El.text <| "Error: " ++ Typechecker.errorToString err
+        )
+    , El.table []
+        { data =
+            let
+                ( expectedType, id ) =
+                    Typechecker.fresh (Typechecker.Id 0)
+            in
+            Typechecker.constrain id Typechecker.primitives expr expectedType
+                |> Result.andThen
+                    (\( con, _ ) ->
+                        Typechecker.solve con Typechecker.nullSubst
+                    )
+                |> Result.withDefault Typechecker.nullSubst
+                |> Dict.toList
+        , columns =
+            [ { header = El.text "Name"
+              , width = El.fill
+              , view =
+                    \( name, _ ) ->
+                        El.text (Name.toString name)
+              }
+            , { header = El.text "Type"
+              , width = El.fill
+              , view =
+                    \( _, type_ ) ->
+                        El.text (AST.prettyType type_)
+              }
+            ]
+        }
+    ]
 
 
 button : { onPress : Maybe msg, label : El.Element msg } -> El.Element msg

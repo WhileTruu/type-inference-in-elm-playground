@@ -368,7 +368,7 @@ solve constraints =
                             )
                             |> Result.map
                                 (\su2 ->
-                                    Dict.union su1 su2
+                                    composeSubst su2 su1
                                 )
                     )
 
