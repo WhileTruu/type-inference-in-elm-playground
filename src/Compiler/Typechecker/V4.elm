@@ -1,4 +1,4 @@
-module Compiler.Typechecker.V5 exposing (..)
+module Compiler.Typechecker.V4 exposing (..)
 
 {-| From WYAH
 -}

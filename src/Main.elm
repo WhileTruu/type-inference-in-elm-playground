@@ -4,7 +4,7 @@ import AssocList as Dict
 import Browser
 import Compiler.AST as AST exposing (Expr)
 import Compiler.Parser as Parser
-import Compiler.Typechecker.V5 as Typechecker
+import Compiler.Typechecker.V4 as Typechecker
 import Data.Name as Name
 import Element as El
 import Element.Background as ElBackground
