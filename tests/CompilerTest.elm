@@ -59,4 +59,19 @@ compileTestSuite description runTypechecker =
                     \_ -> Expect.equal (parseAndTypecheck code) (Ok annotation)
             )
             Examples.examples
+            ++ [ Test.test "int with an arg" <|
+                    \_ ->
+                        Expect.equal
+                            (Result.mapError (\_ -> ())
+                                (parseAndTypecheck "\\a -> (1 a)")
+                            )
+                            (Err ())
+               , Test.test "if function with int arg" <|
+                    \_ ->
+                        Expect.equal
+                            (Result.mapError (\_ -> ())
+                                (parseAndTypecheck "\\a -> \\b -> ((if (1)) a) b")
+                            )
+                            (Err ())
+               ]
         )
