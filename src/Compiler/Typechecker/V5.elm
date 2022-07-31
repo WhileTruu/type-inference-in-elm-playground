@@ -1,4 +1,4 @@
-module Compiler.Typechecker.V4 exposing (..)
+module Compiler.Typechecker.V5 exposing (..)
 
 {-| A step towards Elm-compiler-like constraint based type checking.
 -}
@@ -19,47 +19,40 @@ run expr =
             fresh (Id 0)
     in
     constrain id primitives expr expectedType
-        |> Result.andThen
-            (\( constraint, _ ) ->
-                solve constraint nullSubst
+        |> (\( constraint, _ ) ->
+                solve primitives constraint nullSubst
                     |> Result.map (\s -> applySubst s expectedType)
-            )
+           )
         |> Result.map (generalize (TypeEnv Dict.empty))
 
 
-primitives : TypeEnv
+primitives : RTV
 primitives =
-    TypeEnv <|
-        Dict.fromList
-            [ ( Name.fromString "identity"
-              , Forall (Dict.singleton (Name.fromString "a") ())
-                    (TypeLambda (TypeVar (Name.fromString "a")) (TypeVar (Name.fromString "a")))
-              )
-            , ( Name.fromString "const"
-              , Forall (Dict.fromList [ ( Name.fromString "a", () ), ( Name.fromString "b", () ) ])
+    Dict.fromList
+        [ ( Name.fromString "identity"
+          , TypeLambda (TypeVar (Name.fromString "a")) (TypeVar (Name.fromString "a"))
+          )
+        , ( Name.fromString "const"
+          , TypeLambda
+                (TypeVar (Name.fromString "a"))
+                (TypeLambda
+                    (TypeVar (Name.fromString "b"))
+                    (TypeVar (Name.fromString "a"))
+                )
+          )
+        , ( Name.fromString "add", TypeLambda TypeInt (TypeLambda TypeInt TypeInt) )
+        , ( Name.fromString "gte", TypeLambda TypeInt (TypeLambda TypeInt TypeBool) )
+        , ( Name.fromString "if"
+          , TypeLambda TypeBool
+                (TypeLambda
+                    (TypeVar (Name.fromString "a"))
                     (TypeLambda
                         (TypeVar (Name.fromString "a"))
-                        (TypeLambda
-                            (TypeVar (Name.fromString "b"))
-                            (TypeVar (Name.fromString "a"))
-                        )
+                        (TypeVar (Name.fromString "a"))
                     )
-              )
-            , ( Name.fromString "add", Forall Dict.empty (TypeLambda TypeInt (TypeLambda TypeInt TypeInt)) )
-            , ( Name.fromString "gte", Forall Dict.empty (TypeLambda TypeInt (TypeLambda TypeInt TypeBool)) )
-            , ( Name.fromString "if"
-              , Forall (Dict.singleton (Name.fromString "a") ())
-                    (TypeLambda TypeBool
-                        (TypeLambda
-                            (TypeVar (Name.fromString "a"))
-                            (TypeLambda
-                                (TypeVar (Name.fromString "a"))
-                                (TypeVar (Name.fromString "a"))
-                            )
-                        )
-                    )
-              )
-            ]
+                )
+          )
+        ]
 
 
 
@@ -68,11 +61,6 @@ primitives =
 
 type TypeEnv
     = TypeEnv (Dict Name Annotation)
-
-
-extend : TypeEnv -> ( Name, Annotation ) -> TypeEnv
-extend (TypeEnv env) ( name, scheme ) =
-    TypeEnv (Dict.insert name scheme env)
 
 
 
@@ -169,30 +157,38 @@ ftv ty =
 type Constraint
     = CEqual Type Type
     | CAnd (List Constraint)
+    | CLocal Name Type
+    | CLet
+        { header : ( Name, Type )
+        , bodyCon : Constraint
+        }
 
 
-constrain : Id -> TypeEnv -> Expr -> Type -> Result TypeError ( Constraint, Id )
-constrain id env exp expected =
+type alias RTV =
+    Dict Name Type
+
+
+constrain : Id -> RTV -> Expr -> Type -> ( Constraint, Id )
+constrain id rtv exp expected =
     case exp of
         ExprVar var ->
-            lookupEnv id env var
-                |> Result.map (\( varType, id1 ) -> ( CEqual varType expected, id1 ))
+            ( CLocal var expected, id )
 
         ExprLambda arg body ->
-            constrainLambda id env arg body expected
+            constrainLambda id rtv arg body expected
 
         ExprCall func arg ->
-            constrainCall id env func arg expected
+            constrainCall id rtv func arg expected
 
         ExprInt _ ->
-            Ok ( CEqual TypeInt expected, id )
+            ( CEqual TypeInt expected, id )
 
         ExprBool _ ->
-            Ok ( CEqual TypeBool expected, id )
+            ( CEqual TypeBool expected, id )
 
 
-constrainLambda : Id -> TypeEnv -> Name -> Expr -> Type -> Result TypeError ( Constraint, Id )
-constrainLambda id env arg body expected =
+constrainLambda : Id -> RTV -> Name -> Expr -> Type -> ( Constraint, Id )
+constrainLambda id rtv arg body expected =
     let
         ( argType, id1 ) =
             fresh id
@@ -200,24 +196,22 @@ constrainLambda id env arg body expected =
         ( resultType, id2 ) =
             fresh id1
 
-        tmpEnv : TypeEnv
-        tmpEnv =
-            extend env ( arg, Forall Dict.empty argType )
+        ( bodyCon, id3 ) =
+            constrain id2 rtv body resultType
     in
-    constrain id2 tmpEnv body resultType
-        |> Result.map
-            (\( bodyCon, id3 ) ->
-                ( CAnd
-                    [ bodyCon
-                    , CEqual (TypeLambda argType resultType) expected
-                    ]
-                , id3
-                )
-            )
+    ( CAnd
+        [ CLet
+            { header = ( arg, argType )
+            , bodyCon = bodyCon
+            }
+        , CEqual (TypeLambda argType resultType) expected
+        ]
+    , id3
+    )
 
 
-constrainCall : Id -> TypeEnv -> Expr -> Expr -> Type -> Result TypeError ( Constraint, Id )
-constrainCall id env func arg expected =
+constrainCall : Id -> RTV -> Expr -> Expr -> Type -> ( Constraint, Id )
+constrainCall id rtv func arg expected =
     let
         ( funcType, id1 ) =
             fresh id
@@ -227,59 +221,21 @@ constrainCall id env func arg expected =
 
         ( resultType, id3 ) =
             fresh id2
+
+        ( funcCon, id4 ) =
+            constrain id3 rtv func funcType
+
+        ( argCon, id5 ) =
+            constrain id4 rtv arg argType
     in
-    constrain id3 env func funcType
-        |> Result.andThen
-            (\( funcCon, id4 ) ->
-                constrain id4 env arg argType
-                    |> Result.map
-                        (\( argCon, id5 ) ->
-                            ( CAnd
-                                [ funcCon
-                                , CEqual funcType (TypeLambda argType resultType)
-                                , argCon
-                                , CEqual resultType expected
-                                ]
-                            , id5
-                            )
-                        )
-            )
-
-
-lookupEnv : Id -> TypeEnv -> Name -> Result TypeError ( Type, Id )
-lookupEnv id env x =
-    case Dict.get x ((\(TypeEnv a) -> a) env) of
-        Nothing ->
-            Err (UnboundVariable x)
-
-        Just scheme ->
-            Ok (instantiate id scheme)
-
-
-instantiate : Id -> Annotation -> ( Type, Id )
-instantiate id (Forall vars ty) =
-    List.foldl
-        (\_ ( acc, id_ ) ->
-            let
-                ( tyVar, id__ ) =
-                    fresh id_
-            in
-            ( tyVar :: acc, id__ )
-        )
-        ( [], id )
-        (Dict.keys vars)
-        |> (\( newVars, id_ ) ->
-                let
-                    subst : Dict Name Type
-                    subst =
-                        Dict.fromList
-                            (List.map2 Tuple.pair
-                                (Dict.keys vars)
-                                newVars
-                            )
-                in
-                ( applySubst subst ty, id_ )
-           )
+    ( CAnd
+        [ funcCon
+        , CEqual funcType (TypeLambda argType resultType)
+        , argCon
+        , CEqual resultType expected
+        ]
+    , id5
+    )
 
 
 
@@ -343,8 +299,14 @@ unifyMany xs1 xs2 =
             Err (UnificationMismatch t1 t2)
 
 
-solve : Constraint -> Subst -> Result TypeError Subst
-solve constraint subst =
+type alias State =
+    { subst : Subst
+    , errors : List TypeError
+    }
+
+
+solve : RTV -> Constraint -> Subst -> Result TypeError Subst
+solve rtv constraint subst =
     case constraint of
         CEqual t1 t2 ->
             unifies (applySubst subst t1) (applySubst subst t2)
@@ -354,11 +316,37 @@ solve constraint subst =
                 (\constraint1 ->
                     Result.andThen
                         (\subst1 ->
-                            Result.map (\a -> composeSubst a subst1) (solve constraint1 subst1)
+                            Result.map (\a -> composeSubst a subst1) (solve rtv constraint1 subst1)
                         )
                 )
                 (Ok subst)
                 constraints
+
+        CLocal name t ->
+            lookupRTV rtv name
+                |> Result.andThen
+                    (\actual ->
+                        unifies (applySubst subst actual) (applySubst subst t)
+                    )
+
+        CLet { header, bodyCon } ->
+            solve
+                (Dict.insert (Tuple.first header)
+                    (Tuple.second header)
+                    rtv
+                )
+                bodyCon
+                subst
+
+
+lookupRTV : RTV -> Name -> Result TypeError Type
+lookupRTV rtv x =
+    case Dict.get x rtv of
+        Nothing ->
+            Err (UnboundVariable x)
+
+        Just type_ ->
+            Ok type_
 
 
 
