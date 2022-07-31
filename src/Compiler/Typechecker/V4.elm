@@ -1,6 +1,6 @@
 module Compiler.Typechecker.V4 exposing (..)
 
-{-| From WYAH
+{-| A step towards Elm-compiler-like constraint based type checking.
 -}
 
 import AssocList as Dict exposing (Dict)

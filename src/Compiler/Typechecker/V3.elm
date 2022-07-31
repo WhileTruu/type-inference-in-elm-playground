@@ -1,6 +1,7 @@
 module Compiler.Typechecker.V3 exposing (..)
 
-{-| From WYAH
+{-| Loosely based on "Write you a Haskell" with type equations / constraints,
+since that part was pretty sparse on information I could piece together.
 -}
 
 import AssocList as Dict exposing (Dict)

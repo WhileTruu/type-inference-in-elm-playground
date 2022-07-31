@@ -1,5 +1,10 @@
 module Compiler.Typechecker.V1 exposing (Error, errorToString, run)
 
+{-| Based on "Type inference from scratch for f(by)2019"
+<https://www.youtube.com/watch?v=ytPAlhnAKro>
+<https://github.com/kritzcreek/fby19>
+-}
+
 import AssocList as Dict exposing (Dict)
 import Compiler.AST as AST
 import Data.Name as Name exposing (Name)

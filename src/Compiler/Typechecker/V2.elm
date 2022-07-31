@@ -1,6 +1,6 @@
 module Compiler.Typechecker.V2 exposing (..)
 
-{-| From WYAH
+{-| Based on the first part of type inference form "Write you a Haskell".
 -}
 
 import AssocList as Dict exposing (Dict)
