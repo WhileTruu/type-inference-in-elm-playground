@@ -354,7 +354,7 @@ solve constraint subst =
                 (\constraint1 ->
                     Result.andThen
                         (\subst1 ->
-                            Result.map (composeSubst subst1) (solve constraint1 subst1)
+                            Result.map (\a -> composeSubst a subst1) (solve constraint1 subst1)
                         )
                 )
                 (Ok subst)
