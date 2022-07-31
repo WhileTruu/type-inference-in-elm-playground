@@ -98,7 +98,7 @@ examples =
                 ]
       , annotation = "(Int -> Int -> Int -> Int) -> Int -> Int -> Int -> Int"
       }
-    , { name = "if and gte two arg fn"
+    , { name = "function with `gte` and `if`"
       , code = "\\a -> \\b -> ((if ((gte a) b)) ((add a) b)) b"
       , annotation = "Int -> Int -> Int"
       }
