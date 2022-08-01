@@ -104,7 +104,6 @@ getSubstitutions typechecker expr =
 
         TypecheckerV5 ->
             TypecheckerV5.getSubstitutions expr
-                |> Result.withDefault Dict.empty
 
 
 runTypechecker : Typechecker -> Expr -> Result String AST.Annotation

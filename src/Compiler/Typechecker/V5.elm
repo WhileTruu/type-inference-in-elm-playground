@@ -26,15 +26,29 @@ infer expr =
             fresh (Id 0)
     in
     constrain id primitives expr expectedType
-        |> (\( constraint, _ ) ->
-                Result.map (\a -> ( a, expectedType )) (solve primitives constraint nullSubst)
+        |> Tuple.first
+        |> solve primitives { subst = nullSubst, errors = [] }
+        |> (\state ->
+                case state.errors |> Debug.log "errors" of
+                    [] ->
+                        Ok ( state.subst, expectedType )
+
+                    e :: es ->
+                        Err e
            )
 
 
-getSubstitutions : Expr -> Result TypeError (Dict Name Type)
+getSubstitutions : Expr -> Dict Name Type
 getSubstitutions expr =
-    infer expr
-        |> Result.map (\( s, t ) -> Dict.insert (Name.fromString "u0") t s)
+    let
+        ( expectedType, id ) =
+            fresh (Id 0)
+    in
+    constrain id primitives expr expectedType
+        |> Tuple.first
+        |> solve primitives { subst = nullSubst, errors = [] }
+        |> .subst
+        |> (\s -> Dict.insert (Name.fromString "u0") expectedType s)
 
 
 primitives : RTV
@@ -175,6 +189,28 @@ type Constraint
         }
 
 
+{-|
+
+
+# Rigid type variables.
+
+
+## From Google
+
+_Rigid type variables (or skolem type variables, skolem constants, skolems).
+They are fresh variables allocated to stand for unknown but fixed types.
+Their actual types do not need to be, and cannot be determined._
+
+
+## Elm compiler's comment about this dict
+
+_As we step past type annotations, the free type variables are added to
+the "rigid type variables" dict. Allowing sharing of rigid variables
+between nested type annotations.
+So if you have a top-level type annotation like (func : a -> b) the RTV
+dictionary will hold variables for `a` and `b`_
+
+-}
 type alias RTV =
     Dict Name Type
 
@@ -316,29 +352,48 @@ type alias State =
     }
 
 
-solve : RTV -> Constraint -> Subst -> Result TypeError Subst
-solve rtv constraint subst =
+solve : RTV -> State -> Constraint -> State
+solve rtv state constraint =
     case constraint of
         CEqual t1 t2 ->
-            unifies (applySubst subst t1) (applySubst subst t2)
+            let
+                answer : Result TypeError Subst
+                answer =
+                    unifies (applySubst state.subst t1) (applySubst state.subst t2)
+            in
+            case answer of
+                Ok subst ->
+                    { state | subst = subst }
+
+                Err err ->
+                    { state | errors = err :: state.errors }
 
         CAnd constraints ->
             List.foldl
-                (\constraint1 ->
-                    Result.andThen
-                        (\subst1 ->
-                            Result.map (\a -> composeSubst a subst1) (solve rtv constraint1 subst1)
-                        )
+                (\constraint1 state1 ->
+                    (\a -> { a | subst = composeSubst a.subst state1.subst })
+                        (solve rtv state1 constraint1)
                 )
-                (Ok subst)
+                state
                 constraints
 
         CLocal name t ->
-            lookupRTV rtv name
-                |> Result.andThen
-                    (\actual ->
-                        unifies (applySubst subst actual) (applySubst subst t)
-                    )
+            case lookupRTV rtv name of
+                Ok actual ->
+                    let
+                        answer : Result TypeError Subst
+                        answer =
+                            unifies (applySubst state.subst actual) (applySubst state.subst t)
+                    in
+                    case answer of
+                        Ok subst ->
+                            { state | subst = subst }
+
+                        Err err ->
+                            { state | errors = err :: state.errors }
+
+                Err err ->
+                    { state | errors = err :: state.errors }
 
         CLet { header, bodyCon } ->
             solve
@@ -346,8 +401,8 @@ solve rtv constraint subst =
                     (Tuple.second header)
                     rtv
                 )
+                state
                 bodyCon
-                subst
 
 
 lookupRTV : RTV -> Name -> Result TypeError Type
